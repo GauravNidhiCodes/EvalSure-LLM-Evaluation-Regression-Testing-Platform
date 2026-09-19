@@ -59,9 +59,36 @@ Open http://localhost:3000 → redirects to `/dashboard`.
 | `/datasets/[id]/versions/[versionId]` | Test cases |
 | `/experiments/[id]` | Experiment, policies, runs |
 | `/runs/[id]` | Metrics, regression, case results |
+| `/runs/[id]/compare` | Baseline vs current run comparison |
 | `/runs/[id]/traces` | Trace timeline |
 | `/traces` | Pick a run to inspect traces |
 | `/settings` | API connection status |
+
+### Run Comparison
+
+Compare a **completed** evaluation run against its experiment **baseline** at `/runs/[runId]/compare` (also linked from run detail and experiment recent runs when a baseline exists).
+
+The UI loads current + baseline runs and case results from the API. Metric deltas use `current − baseline`. Regression PASS / FAIL / NOT_EVALUATED and regressed cases come from the backend regression payload — the dashboard does not re-implement the regression engine.
+
+| Concept | Meaning |
+|---------|---------|
+| Baseline vs current | Experiment baseline run vs the run you opened |
+| Metric delta | `current − baseline` (per aggregate / case score) |
+| Regression status | Backend `PASS` / `FAIL` / `NOT_EVALUATED` |
+| Regressed test cases | Cases listed in API `regression.regressed_cases` |
+| Case comparison | Side-by-side scores; missing sides → `NOT_COMPARABLE` |
+
+Example:
+
+```
+Baseline:  string_similarity = 0.94
+Current:   string_similarity = 0.86
+Delta:     -0.08
+Policy:    max allowed drop = 0.05
+Result:    REGRESSED
+```
+
+If the run has no baseline, the page shows: **No baseline configured for this run.**
 
 ## SDK / CLI / CI
 

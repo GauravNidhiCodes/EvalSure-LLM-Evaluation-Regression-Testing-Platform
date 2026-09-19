@@ -63,11 +63,22 @@ export interface MetricAggregate {
   [key: string]: unknown;
 }
 
+export interface RegressionAggregateEntry {
+  baseline?: number | null;
+  current?: number | null;
+  delta?: number | null;
+  threshold?: number | null;
+  min_aggregate_score?: number | null;
+  violated?: boolean;
+  reasons?: string[];
+  [key: string]: unknown;
+}
+
 export interface RegressionInfo {
   status: RegressionStatus;
   baseline_run_id: string | null;
   regressed_case_count: number;
-  aggregate: Record<string, Record<string, unknown>>;
+  aggregate: Record<string, RegressionAggregateEntry>;
   regressed_cases: RegressedCase[];
   violations: Array<Record<string, unknown>>;
   incomparable_cases: Array<Record<string, unknown>>;

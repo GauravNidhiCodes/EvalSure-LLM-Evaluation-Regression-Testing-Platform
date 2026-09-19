@@ -36,6 +36,15 @@ export default async function RunDetailPage({
           <div className="flex flex-wrap gap-2">
             <StatusBadge status={run.status} />
             <StatusBadge status={run.regression_status} kind="regression" />
+            {run.status === "COMPLETED" &&
+            (run.baseline_run_id || run.regression?.baseline_run_id) ? (
+              <Link
+                href={`/runs/${run.id}/compare`}
+                className="rounded border border-accent/40 bg-accent/10 px-2 py-1 text-xs font-medium text-accent hover:bg-accent/20"
+              >
+                Compare with Baseline
+              </Link>
+            ) : null}
             <Link
               href={`/runs/${run.id}/traces`}
               className="rounded border border-border px-2 py-1 text-xs text-accent hover:bg-elevated"

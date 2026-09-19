@@ -68,7 +68,12 @@ export default async function ExperimentDetailPage({
             <EmptyState title="No regression policies configured." />
           ) : (
             <DataTable
-              headers={["Metric", "Max drop", "Min aggregate", "Max regressed cases"]}
+              headers={[
+                "Metric",
+                "Max allowed drop",
+                "Minimum aggregate score",
+                "Maximum regressed cases",
+              ]}
             >
               {policies.map((policy) => (
                 <tr key={policy.id} className="hover:bg-elevated/40">
@@ -87,28 +92,46 @@ export default async function ExperimentDetailPage({
         </section>
 
         <section className="space-y-3">
-          <h2 className="text-sm font-medium">Evaluation runs</h2>
+          <h2 className="text-sm font-medium">Recent evaluation runs</h2>
           {runs.length === 0 ? (
             <EmptyState title="No runs for this experiment." />
           ) : (
-            <DataTable headers={["Run", "Status", "Regression", "Created"]}>
-              {runs.map((run) => (
-                <tr key={run.id} className="hover:bg-elevated/40">
-                  <td className="px-3 py-2 font-mono text-xs">
-                    <Link href={`/runs/${run.id}`} className="text-accent hover:underline">
-                      {shortId(run.id)}
-                      {run.is_baseline ? " (baseline)" : ""}
-                    </Link>
-                  </td>
-                  <td className="px-3 py-2">
-                    <StatusBadge status={run.status} />
-                  </td>
-                  <td className="px-3 py-2">
-                    <StatusBadge status={run.regression_status} kind="regression" />
-                  </td>
-                  <td className="px-3 py-2 text-xs text-muted">{formatDate(run.created_at)}</td>
-                </tr>
-              ))}
+            <DataTable headers={["Run", "Date", "Status", "Regression", "Compare"]}>
+              {runs.map((run) => {
+                const canCompare =
+                  run.status === "COMPLETED" &&
+                  Boolean(run.baseline_run_id) &&
+                  run.id !== experiment.baseline_run_id;
+                return (
+                  <tr key={run.id} className="hover:bg-elevated/40">
+                    <td className="px-3 py-2 font-mono text-xs">
+                      <Link href={`/runs/${run.id}`} className="text-accent hover:underline">
+                        {shortId(run.id)}
+                        {run.is_baseline ? " (baseline)" : ""}
+                      </Link>
+                    </td>
+                    <td className="px-3 py-2 text-xs text-muted">{formatDate(run.created_at)}</td>
+                    <td className="px-3 py-2">
+                      <StatusBadge status={run.status} />
+                    </td>
+                    <td className="px-3 py-2">
+                      <StatusBadge status={run.regression_status} kind="regression" />
+                    </td>
+                    <td className="px-3 py-2 text-xs">
+                      {canCompare ? (
+                        <Link
+                          href={`/runs/${run.id}/compare`}
+                          className="text-accent hover:underline"
+                        >
+                          Compare
+                        </Link>
+                      ) : (
+                        <span className="text-muted">—</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
             </DataTable>
           )}
         </section>
