@@ -1,0 +1,8 @@
+{
+  "metric_name": "string_similarity",
+  "max_allowed_drop": 0.05,
+  "min_aggregate_score": 0.85,
+  "max_regressed_cases": 2,
+  "run_metrics": ["exact_match", "string_similarity"],
+  "notes": "Tune max_allowed_drop / max_regressed_cases to see PASS vs FAIL. Degraded cases in this demo: refund-policy, password-reset, shipping-time, cancel-subscription, track-order."
+}

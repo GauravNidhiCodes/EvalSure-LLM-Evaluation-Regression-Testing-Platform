@@ -1,0 +1,96 @@
+{
+  "name": "support-faq",
+  "description": "Customer-support FAQ assistant evaluation set (deterministic demo).",
+  "test_cases": [
+    {
+      "external_id": "refund-policy",
+      "input": { "question": "What is your refund policy?" },
+      "expected": {
+        "answer": "You can request a full refund within 30 days of purchase with your order number."
+      },
+      "metadata": { "channel": "support", "priority": "high" },
+      "tags": ["billing", "refunds"]
+    },
+    {
+      "external_id": "password-reset",
+      "input": { "question": "How do I reset my password?" },
+      "expected": {
+        "answer": "Open the login page, click Forgot password, and follow the email link we send you."
+      },
+      "metadata": { "channel": "support" },
+      "tags": ["account", "security"]
+    },
+    {
+      "external_id": "account-deletion",
+      "input": { "question": "How can I delete my account?" },
+      "expected": {
+        "answer": "Go to Settings, choose Privacy, then Delete account. Deletion is permanent after 7 days."
+      },
+      "metadata": { "channel": "support", "priority": "high" },
+      "tags": ["account", "privacy"]
+    },
+    {
+      "external_id": "shipping-time",
+      "input": { "question": "How long does shipping take?" },
+      "expected": {
+        "answer": "Standard shipping takes 3 to 5 business days. Express shipping arrives in 1 to 2 business days."
+      },
+      "metadata": { "channel": "support" },
+      "tags": ["shipping", "fulfillment"]
+    },
+    {
+      "external_id": "cancel-subscription",
+      "input": { "question": "How do I cancel my subscription?" },
+      "expected": {
+        "answer": "Open Billing, select your plan, and click Cancel subscription. Access continues until the end of the billing period."
+      },
+      "metadata": { "channel": "support", "priority": "high" },
+      "tags": ["billing", "subscription"]
+    },
+    {
+      "external_id": "contact-support",
+      "input": { "question": "How do I contact support?" },
+      "expected": {
+        "answer": "Email support@example.com or use in-app chat Monday through Friday, 9am to 6pm Eastern."
+      },
+      "metadata": { "channel": "support" },
+      "tags": ["support", "contact"]
+    },
+    {
+      "external_id": "update-payment",
+      "input": { "question": "How do I update my payment method?" },
+      "expected": {
+        "answer": "Go to Billing, choose Payment methods, then Add or replace your card. Changes apply to the next invoice."
+      },
+      "metadata": { "channel": "support" },
+      "tags": ["billing", "payments"]
+    },
+    {
+      "external_id": "track-order",
+      "input": { "question": "Where is my order?" },
+      "expected": {
+        "answer": "Open Orders, select your order, and view the tracking link once the package has shipped."
+      },
+      "metadata": { "channel": "support" },
+      "tags": ["shipping", "orders"]
+    },
+    {
+      "external_id": "change-email",
+      "input": { "question": "Can I change the email on my account?" },
+      "expected": {
+        "answer": "Yes. Open Settings, edit Email, confirm the new address from the verification message we send."
+      },
+      "metadata": { "channel": "support" },
+      "tags": ["account"]
+    },
+    {
+      "external_id": "return-label",
+      "input": { "question": "How do I get a return shipping label?" },
+      "expected": {
+        "answer": "Start a return from Orders, choose the items, and download the prepaid label we generate for eligible products."
+      },
+      "metadata": { "channel": "support" },
+      "tags": ["shipping", "returns"]
+    }
+  ]
+}

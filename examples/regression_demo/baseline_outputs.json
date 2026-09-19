@@ -1,0 +1,35 @@
+{
+  "comment": "Healthy model/prompt version — near-exact answers. Mapped to test_case_id UUIDs by run_demo.py.",
+  "results_by_external_id": {
+    "refund-policy": {
+      "answer": "You can request a full refund within 30 days of purchase with your order number."
+    },
+    "password-reset": {
+      "answer": "Open the login page, click Forgot password, and follow the email link we send you."
+    },
+    "account-deletion": {
+      "answer": "Go to Settings, choose Privacy, then Delete account. Deletion is permanent after 7 days."
+    },
+    "shipping-time": {
+      "answer": "Standard shipping takes 3 to 5 business days. Express shipping arrives in 1 to 2 business days."
+    },
+    "cancel-subscription": {
+      "answer": "Open Billing, select your plan, and click Cancel subscription. Access continues until the end of the billing period."
+    },
+    "contact-support": {
+      "answer": "Email support@example.com or use in-app chat Monday through Friday, 9am to 6pm Eastern."
+    },
+    "update-payment": {
+      "answer": "Go to Billing, choose Payment methods, then Add or replace your card. Changes apply to the next invoice."
+    },
+    "track-order": {
+      "answer": "Open Orders, select your order, and view the tracking link once the package has shipped."
+    },
+    "change-email": {
+      "answer": "Yes. Open Settings, edit Email, confirm the new address from the verification message we send."
+    },
+    "return-label": {
+      "answer": "Start a return from Orders, choose the items, and download the prepaid label we generate for eligible products."
+    }
+  }
+}

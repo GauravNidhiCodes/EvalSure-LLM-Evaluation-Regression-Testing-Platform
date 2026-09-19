@@ -77,7 +77,7 @@ EvalSure/
 ├── apps/web/           # Next.js dashboard
 ├── packages/sdk/       # Python client library
 ├── packages/cli/       # Typer CLI (`evalsure`)
-├── examples/           # CI sample + basic evaluation walkthrough
+├── examples/           # CI sample, basic walkthrough, regression demo
 ├── docs/               # Quickstart + architecture
 ├── docker-compose.yml  # db + api + web
 └── .github/workflows/  # EVALSURE CI workflow template
@@ -139,7 +139,7 @@ docker compose up --build
 Then open http://localhost:3000/register, create an account, and create a project.
 
 **Full step-by-step (API + dataset + run + regression):** [docs/quickstart.md](docs/quickstart.md)  
-**Deterministic sample data:** [examples/basic/](examples/basic/)
+**Deterministic sample data:** [examples/basic/](examples/basic/) · **Full regression demo:** [examples/regression_demo/](examples/regression_demo/)
 
 ### Docker commands
 
@@ -413,4 +413,5 @@ No project-wide Python formatter/linter is configured beyond what you run locall
 - [docs/quickstart.md](docs/quickstart.md) — clone → first regression check  
 - [docs/architecture.md](docs/architecture.md) — modules, lifecycle, auth  
 - [examples/basic/](examples/basic/) — deterministic dataset + results  
+- [examples/regression_demo/](examples/regression_demo/) — end-to-end regression quality gate  
 - [examples/ci/](examples/ci/) — CI config & results sample  

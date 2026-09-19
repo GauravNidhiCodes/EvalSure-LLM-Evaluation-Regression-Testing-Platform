@@ -1,0 +1,35 @@
+{
+  "comment": "Degraded prompt/model version — several answers are vague or wrong. Expect regression FAIL.",
+  "results_by_external_id": {
+    "refund-policy": {
+      "answer": "Refunds are available."
+    },
+    "password-reset": {
+      "answer": "Try logging in again."
+    },
+    "account-deletion": {
+      "answer": "Go to Settings, choose Privacy, then Delete account. Deletion is permanent after 7 days."
+    },
+    "shipping-time": {
+      "answer": "It depends."
+    },
+    "cancel-subscription": {
+      "answer": "Email us and we might cancel it."
+    },
+    "contact-support": {
+      "answer": "Email support@example.com or use in-app chat Monday through Friday, 9am to 6pm Eastern."
+    },
+    "update-payment": {
+      "answer": "Go to Billing, choose Payment methods, then Add or replace your card. Changes apply to the next invoice."
+    },
+    "track-order": {
+      "answer": "Check your email sometime."
+    },
+    "change-email": {
+      "answer": "Yes. Open Settings, edit Email, confirm the new address from the verification message we send."
+    },
+    "return-label": {
+      "answer": "Start a return from Orders, choose the items, and download the prepaid label we generate for eligible products."
+    }
+  }
+}
