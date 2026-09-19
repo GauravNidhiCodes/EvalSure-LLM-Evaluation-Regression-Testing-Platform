@@ -1,0 +1,12 @@
+.git
+.env
+.env.*
+!.env.example
+.env.local
+node_modules
+.next
+coverage
+.turbo
+*.md
+.DS_Store
+npm-debug.log*

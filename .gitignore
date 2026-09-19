@@ -3,13 +3,16 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 .pytest_cache/
-.pytest_cache/
 .mypy_cache/
 .ruff_cache/
 .env
+.env.local
+.env.*.local
 *.sqlite3
 .DS_Store
 dist/
 build/
 node_modules/
 .next/
+coverage/
+htmlcov/
