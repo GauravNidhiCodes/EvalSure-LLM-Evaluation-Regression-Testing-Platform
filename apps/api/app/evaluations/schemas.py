@@ -14,6 +14,17 @@ class EvaluationRunCreate(BaseModel):
     metrics: list[str] = Field(default_factory=list)
     config_snapshot: dict[str, Any] = Field(default_factory=dict)
 
+    @field_validator("metrics")
+    @classmethod
+    def validate_metrics(cls, value: list[str]) -> list[str]:
+        from app.metrics.registry import MetricRegistry
+
+        unknown = [name for name in value if not MetricRegistry.has(name)]
+        if unknown:
+            available = ", ".join(MetricRegistry.list_metrics())
+            raise ValueError(f"Unknown metric(s): {', '.join(unknown)}. Available: {available}")
+        return value
+
 
 class EvaluationRunCreated(BaseModel):
     id: UUID
@@ -54,6 +65,7 @@ class EvaluationRunOut(BaseModel):
     regression_status: RegressionStatus = RegressionStatus.NOT_EVALUATED
     baseline_run_id: UUID | None = None
     regression: RegressionInfo | None = None
+    metric_aggregates: dict[str, Any] = Field(default_factory=dict)
 
 
 class CaseResultIn(BaseModel):

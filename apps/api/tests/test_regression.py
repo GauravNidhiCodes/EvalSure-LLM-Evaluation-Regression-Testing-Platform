@@ -146,7 +146,7 @@ async def test_invalid_metric_and_threshold(client: AsyncClient) -> None:
     bad_metric = await client.post(
         f"/api/v1/experiments/{ctx['experiment_id']}/regression-policies",
         headers=ctx["headers"],
-        json={"metric_name": "llm_judge", "max_allowed_drop": 0.05},
+        json={"metric_name": "not_a_real_metric", "max_allowed_drop": 0.05},
     )
     assert bad_metric.status_code == 422
 
@@ -354,3 +354,211 @@ def test_regression_service_unit_threshold() -> None:
     assert outcome.aggregate["string_similarity"].delta == pytest.approx(-0.08)
     assert outcome.aggregate["string_similarity"].violated is True
     assert outcome.regressed_case_count == 1
+
+
+def _engine_pair(
+    *,
+    baseline_score: float,
+    current_score: float,
+    baseline_status: str = CaseResultStatus.COMPLETED.value,
+    current_status: str = CaseResultStatus.COMPLETED.value,
+    max_allowed_drop: float = 0.05,
+    extra_baseline: CaseResult | None = None,
+    extra_current: CaseResult | None = None,
+    baseline_scores_extra: dict | None = None,
+    current_scores_extra: dict | None = None,
+):
+    engine = RegressionService()
+    tid = uuid4()
+    baseline_run = EvaluationRun(
+        id=uuid4(),
+        project_id=uuid4(),
+        dataset_version_id=uuid4(),
+        status=RunStatus.COMPLETED.value,
+    )
+    current_run = EvaluationRun(
+        id=uuid4(),
+        project_id=baseline_run.project_id,
+        dataset_version_id=baseline_run.dataset_version_id,
+        status=RunStatus.COMPLETED.value,
+    )
+    baseline_cr = CaseResult(
+        id=uuid4(),
+        run_id=baseline_run.id,
+        test_case_id=tid,
+        status=baseline_status,
+        metric_scores={"string_similarity": {"score": baseline_score, "passed": True}},
+    )
+    current_cr = CaseResult(
+        id=uuid4(),
+        run_id=current_run.id,
+        test_case_id=tid,
+        status=current_status,
+        metric_scores={"string_similarity": {"score": current_score, "passed": current_status == CaseResultStatus.COMPLETED.value}},
+    )
+    policy = RegressionPolicy(
+        id=uuid4(),
+        experiment_id=uuid4(),
+        metric_name="string_similarity",
+        max_allowed_drop=max_allowed_drop,
+    )
+    baseline_results = [baseline_cr] + ([extra_baseline] if extra_baseline else [])
+    current_results = [current_cr] + ([extra_current] if extra_current else [])
+    baseline_scores = {tid: baseline_cr.metric_scores}
+    current_scores = {tid: current_cr.metric_scores}
+    if baseline_scores_extra:
+        baseline_scores.update(baseline_scores_extra)
+    if current_scores_extra:
+        current_scores.update(current_scores_extra)
+    outcome = engine.evaluate(
+        current_run=current_run,
+        baseline_run=baseline_run,
+        current_results=current_results,
+        baseline_results=baseline_results,
+        policies=[policy],
+        current_scores_by_case=current_scores,
+        baseline_scores_by_case=baseline_scores,
+    )
+    return outcome, tid
+
+
+def test_drop_within_threshold_passes() -> None:
+    outcome, _ = _engine_pair(baseline_score=0.94, current_score=0.90, max_allowed_drop=0.05)
+    assert outcome.status.value == "PASS"
+    assert outcome.aggregate["string_similarity"].violated is False
+    assert outcome.regressed_case_count == 0
+
+
+def test_improved_case_not_regressed() -> None:
+    outcome, _ = _engine_pair(baseline_score=0.70, current_score=0.95, max_allowed_drop=0.05)
+    assert outcome.status.value == "PASS"
+    assert outcome.regressed_case_count == 0
+
+
+def test_baseline_passed_current_failed() -> None:
+    outcome, tid = _engine_pair(
+        baseline_score=0.95,
+        current_score=0.10,
+        current_status=CaseResultStatus.FAILED.value,
+        max_allowed_drop=1.0,
+    )
+    assert outcome.regressed_case_count == 1
+    assert any(
+        c.test_case_id == str(tid) and "baseline_passed_current_failed" in c.reason
+        for c in outcome.regressed_cases
+    )
+
+
+def test_missing_cases_are_incomparable_not_crash() -> None:
+    engine = RegressionService()
+    shared = uuid4()
+    only_base = uuid4()
+    only_cur = uuid4()
+    baseline_run = EvaluationRun(
+        id=uuid4(), project_id=uuid4(), dataset_version_id=uuid4(), status=RunStatus.COMPLETED.value
+    )
+    current_run = EvaluationRun(
+        id=uuid4(),
+        project_id=baseline_run.project_id,
+        dataset_version_id=baseline_run.dataset_version_id,
+        status=RunStatus.COMPLETED.value,
+    )
+    policy = RegressionPolicy(
+        id=uuid4(),
+        experiment_id=uuid4(),
+        metric_name="string_similarity",
+        max_allowed_drop=0.05,
+    )
+    baseline_results = [
+        CaseResult(
+            id=uuid4(),
+            run_id=baseline_run.id,
+            test_case_id=shared,
+            status=CaseResultStatus.COMPLETED.value,
+            metric_scores={"string_similarity": {"score": 1.0, "passed": True}},
+        ),
+        CaseResult(
+            id=uuid4(),
+            run_id=baseline_run.id,
+            test_case_id=only_base,
+            status=CaseResultStatus.COMPLETED.value,
+            metric_scores={"string_similarity": {"score": 1.0, "passed": True}},
+        ),
+    ]
+    current_results = [
+        CaseResult(
+            id=uuid4(),
+            run_id=current_run.id,
+            test_case_id=shared,
+            status=CaseResultStatus.COMPLETED.value,
+            metric_scores={"string_similarity": {"score": 1.0, "passed": True}},
+        ),
+        CaseResult(
+            id=uuid4(),
+            run_id=current_run.id,
+            test_case_id=only_cur,
+            status=CaseResultStatus.COMPLETED.value,
+            metric_scores={"string_similarity": {"score": 1.0, "passed": True}},
+        ),
+    ]
+    outcome = engine.evaluate(
+        current_run=current_run,
+        baseline_run=baseline_run,
+        current_results=current_results,
+        baseline_results=baseline_results,
+        policies=[policy],
+        current_scores_by_case={
+            shared: current_results[0].metric_scores,
+            only_cur: current_results[1].metric_scores,
+        },
+        baseline_scores_by_case={
+            shared: baseline_results[0].metric_scores,
+            only_base: baseline_results[1].metric_scores,
+        },
+    )
+    assert outcome.status.value == "PASS"
+    reasons = {item["reason"] for item in outcome.incomparable_cases}
+    assert "missing_in_current" in reasons
+    assert "missing_in_baseline" in reasons
+
+
+@pytest.mark.asyncio
+async def test_unauthorized_experiment_policy_access(client: AsyncClient) -> None:
+    ctx = await _fixture(client)
+    other = await client.post(
+        "/api/v1/auth/register",
+        json={"email": f"other-{uuid4().hex[:8]}@example.com", "password": "password123"},
+    )
+    other_headers = {"Authorization": f"Bearer {other.json()['access_token']}"}
+    forbidden = await client.post(
+        f"/api/v1/experiments/{ctx['experiment_id']}/regression-policies",
+        headers=other_headers,
+        json={"metric_name": "exact_match", "max_allowed_drop": 0.1},
+    )
+    assert forbidden.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_drop_within_threshold_api(client: AsyncClient) -> None:
+    ctx = await _fixture(client)
+    baseline_id = await _complete_run(client, ctx, GOOD)
+    await client.post(
+        f"/api/v1/experiments/{ctx['experiment_id']}/baseline/{baseline_id}",
+        headers=ctx["headers"],
+    )
+    await client.post(
+        f"/api/v1/experiments/{ctx['experiment_id']}/regression-policies",
+        headers=ctx["headers"],
+        json={"metric_name": "string_similarity", "max_allowed_drop": 0.50},
+    )
+    # Mild wording change should stay within a generous threshold
+    mild = {
+        "r1": {"answer": "Normalization organizes data to reduce redundancy"},
+        "r2": {"answer": "A unique identifier for a table row"},
+    }
+    run_id = await _complete_run(client, ctx, mild)
+    result = await client.post(
+        f"/api/v1/runs/{run_id}/evaluate-regression",
+        headers=ctx["headers"],
+    )
+    assert result.json()["regression"]["status"] == "PASS"

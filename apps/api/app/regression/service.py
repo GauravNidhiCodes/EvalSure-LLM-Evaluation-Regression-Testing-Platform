@@ -14,7 +14,8 @@ from app.core.models import (
     RegressionStatus,
     RunStatus,
 )
-from app.metrics.registry import MetricRegistry
+from app.judge.errors import JudgeEvaluationError
+from app.metrics.registry import MetricContext, MetricRegistry
 from app.regression.engine import RegressionService
 from app.regression.schemas import (
     EvaluateRegressionOut,
@@ -136,17 +137,32 @@ def _ensure_scores_for_results(
     *,
     persist: bool,
 ) -> dict[UUID, dict[str, dict]]:
-    """Compute metric scores from actual vs expected. Optionally persist on CaseResult."""
+    """Compute metric scores from actual vs expected. Optionally persist on CaseResult.
+
+    Already-persisted scores (including llm_judge reasons) are reused — no duplicate
+    provider calls. Judge failures leave the metric unset for that case.
+    """
     by_case: dict[UUID, dict[str, dict]] = {}
     for cr in results:
         expected = cr.test_case.expected if cr.test_case else None
+        input_data = cr.test_case.input if cr.test_case else None
         existing = dict(cr.metric_scores or {})
         needed = [m for m in metric_names if m not in existing]
         if needed:
-            computed = MetricRegistry.score_case(cr.actual_output, expected, needed)
-            existing.update(computed)
-            if persist:
-                cr.metric_scores = existing
+            try:
+                computed = MetricRegistry.score_case(
+                    cr.actual_output,
+                    expected,
+                    needed,
+                    context=MetricContext(input=input_data),
+                )
+                existing.update(computed)
+                if persist:
+                    cr.metric_scores = existing
+            except JudgeEvaluationError:
+                # Leave missing scores; regression treats them as incomparable.
+                if persist:
+                    cr.metric_scores = existing
         by_case[cr.test_case_id] = existing
     return by_case
 

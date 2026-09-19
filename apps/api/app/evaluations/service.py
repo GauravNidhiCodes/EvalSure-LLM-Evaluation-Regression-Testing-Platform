@@ -26,6 +26,9 @@ from app.evaluations.schemas import (
     EvaluationRunCreated,
     EvaluationRunOut,
 )
+from app.judge.errors import JudgeEvaluationError
+from app.judge.provider import judge_config_for_snapshot
+from app.metrics.registry import MetricContext, MetricRegistry, aggregate_metric_scores
 from app.regression.service import _regression_info_from_summary
 
 
@@ -34,6 +37,38 @@ def _aggregates(total_cases: int, results: list[CaseResult]) -> tuple[int, int, 
     failed = sum(1 for r in results if r.status == CaseResultStatus.FAILED.value)
     pending = total_cases - completed - failed
     return completed, failed, pending
+
+
+def _score_case_metrics(
+    *,
+    actual_output: dict | None,
+    test_case: TestCase,
+    metric_names: list[str],
+) -> tuple[dict, str | None]:
+    """Score configured metrics. Judge failures mark the case failed; other metrics may still score.
+
+    Failure handling: a failed llm_judge evaluation fails the CaseResult (with error_message)
+    but does not fail the overall EvaluationRun — the run still becomes COMPLETED when all
+    cases have results.
+    """
+    if not metric_names or actual_output is None:
+        return {}, None
+    scores: dict = {}
+    judge_error: str | None = None
+    context = MetricContext(input=test_case.input)
+    for name in metric_names:
+        try:
+            partial = MetricRegistry.score_case(
+                actual_output,
+                test_case.expected,
+                [name],
+                context=context,
+            )
+            scores.update(partial)
+        except JudgeEvaluationError as exc:
+            judge_error = f"llm_judge: {exc}"
+            break
+    return scores, judge_error
 
 
 def _run_out(
@@ -82,6 +117,7 @@ def _run_out(
         regression_status=regression_status,
         baseline_run_id=baseline_run_id,
         regression=regression,
+        metric_aggregates=aggregate_metric_scores([dict(r.metric_scores or {}) for r in results]),
     )
 
 
@@ -93,8 +129,20 @@ async def _count_test_cases(db: AsyncSession, dataset_version_id: UUID) -> int:
 
 
 def _build_config_snapshot(body: EvaluationRunCreate) -> dict:
-    """Freeze reproducibility metadata at run creation. Never mutate afterwards."""
+    """Freeze reproducibility metadata at run creation. Never mutate afterwards.
+
+    Secrets (API keys) are never included in the snapshot.
+    """
     snapshot = dict(body.config_snapshot)
+    # Strip any accidentally supplied secrets from client payload.
+    snapshot.pop("api_key", None)
+    snapshot.pop("judge_api_key", None)
+    if isinstance(snapshot.get("judge"), dict):
+        judge = dict(snapshot["judge"])
+        judge.pop("api_key", None)
+        judge.pop("judge_api_key", None)
+        snapshot["judge"] = judge
+
     snapshot["dataset_version_id"] = str(body.dataset_version_id)
     if body.experiment_id is not None:
         snapshot["experiment_id"] = str(body.experiment_id)
@@ -102,6 +150,11 @@ def _build_config_snapshot(body: EvaluationRunCreate) -> dict:
         snapshot["metrics"] = list(body.metrics)
     elif "metrics" not in snapshot:
         snapshot["metrics"] = []
+
+    metrics = list(snapshot.get("metrics") or [])
+    if "llm_judge" in metrics:
+        # Preserve non-secret judge settings for reproducibility.
+        snapshot["judge"] = judge_config_for_snapshot()
     return snapshot
 
 
@@ -240,20 +293,39 @@ async def submit_results(
         run.status = RunStatus.RUNNING.value
         run.started_at = datetime.now(timezone.utc)
 
+    metric_names = [
+        name
+        for name in list((run.config_snapshot or {}).get("metrics") or [])
+        if MetricRegistry.has(name)
+    ]
+
     try:
         for item in body.results:
+            test_case = cases_by_id[item.test_case_id]
+            metric_scores: dict = {}
+            error_message = item.error_message
             if item.error_message:
                 case_status = CaseResultStatus.FAILED.value
             else:
-                case_status = CaseResultStatus.COMPLETED.value
+                metric_scores, judge_error = _score_case_metrics(
+                    actual_output=item.actual_output,
+                    test_case=test_case,
+                    metric_names=metric_names,
+                )
+                if judge_error:
+                    # Judge failures mark the case failed; run can still COMPLETE overall.
+                    case_status = CaseResultStatus.FAILED.value
+                    error_message = judge_error
+                else:
+                    case_status = CaseResultStatus.COMPLETED.value
             db.add(
                 CaseResult(
                     run_id=run.id,
                     test_case_id=item.test_case_id,
                     actual_output=item.actual_output,
                     status=case_status,
-                    metric_scores={},
-                    error_message=item.error_message,
+                    metric_scores=metric_scores,
+                    error_message=error_message,
                 )
             )
         await db.flush()

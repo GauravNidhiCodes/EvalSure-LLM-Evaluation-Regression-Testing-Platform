@@ -7,7 +7,7 @@ from typing import Any
 from uuid import UUID
 
 from app.core.models import CaseResult, CaseResultStatus, EvaluationRun, RegressionPolicy, RegressionStatus
-from app.metrics.registry import MetricRegistry
+from app.metrics.registry import MetricRegistry, metric_score_value
 
 
 @dataclass
@@ -78,17 +78,7 @@ class RegressionResult:
 
 
 def _score_value(metric_scores: dict[str, Any] | None, metric: str) -> float | None:
-    if not metric_scores or metric not in metric_scores:
-        return None
-    entry = metric_scores[metric]
-    if isinstance(entry, dict):
-        if "score" in entry:
-            return float(entry["score"])
-        return None
-    try:
-        return float(entry)
-    except (TypeError, ValueError):
-        return None
+    return metric_score_value(metric_scores, metric)
 
 
 def _case_passed(case: CaseResult) -> bool:

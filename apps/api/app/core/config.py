@@ -1,7 +1,7 @@
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Always resolve .env from apps/api, regardless of process CWD.
@@ -37,6 +37,28 @@ class Settings(BaseSettings):
     jwt_secret: str = Field(min_length=16)
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 60 * 24 * 7
+
+    # LLM-as-a-judge (secrets never logged or persisted).
+    judge_provider: str = Field(
+        default="openai_compatible",
+        validation_alias=AliasChoices("EVALSURE_JUDGE_PROVIDER", "JUDGE_PROVIDER"),
+    )
+    judge_model: str = Field(
+        default="gpt-4o-mini",
+        validation_alias=AliasChoices("EVALSURE_JUDGE_MODEL", "JUDGE_MODEL"),
+    )
+    judge_api_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("EVALSURE_JUDGE_API_KEY", "JUDGE_API_KEY"),
+    )
+    judge_base_url: str = Field(
+        default="https://api.openai.com/v1",
+        validation_alias=AliasChoices("EVALSURE_JUDGE_BASE_URL", "JUDGE_BASE_URL"),
+    )
+    judge_timeout_seconds: float = Field(
+        default=60.0,
+        validation_alias=AliasChoices("EVALSURE_JUDGE_TIMEOUT_SECONDS", "JUDGE_TIMEOUT_SECONDS"),
+    )
 
 
 @lru_cache

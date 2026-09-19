@@ -6,10 +6,92 @@ LLM evaluation and regression-testing platform.
 
 - Phase 0 — auth, projects, API keys
 - Phase 1 — datasets, evaluation runs + case results
-- Phase 2 Milestone 1 — experiments + baseline designation
-- Phase 2 Milestone 2 — **regression detection engine**
+- Phase 2 — experiments, baselines, regression detection
+- Phase 3 Milestone 1 — **LLM-as-a-Judge metric** (`llm_judge`)
 
-Not yet: LLM-as-judge, traces, dashboard, CLI/CI, Redis workers.
+Not yet: traces, dashboard, CLI/CI, Redis workers.
+
+## LLM-as-a-Judge
+
+Deterministic metrics (`exact_match`, `string_similarity`) miss semantic equivalence.
+Example: *"Paris is the capital of France."* vs *"France's capital city is Paris."* —
+string match fails, but meaning is aligned.
+
+**`llm_judge`** asks a configured LLM to score actual output against expected output
+and returns a normalized score in **[0.0, 1.0]** plus a short reason.
+
+### Environment
+
+```bash
+EVALSURE_JUDGE_PROVIDER=openai_compatible   # default
+EVALSURE_JUDGE_MODEL=gpt-4o-mini
+EVALSURE_JUDGE_API_KEY=                     # required for real calls; never commit
+EVALSURE_JUDGE_BASE_URL=https://api.openai.com/v1
+EVALSURE_JUDGE_TIMEOUT_SECONDS=60
+```
+
+- API keys come only from environment / `.env`
+- Keys are **never** stored in `config_snapshot`, DB rows, logs, or API responses
+- The test suite uses a **mocked** judge provider — **no real LLM calls** in CI
+
+### Run configuration
+
+```json
+{
+  "metrics": ["exact_match", "string_similarity", "llm_judge"],
+  "config_snapshot": { "model": "my-app-v2" }
+}
+```
+
+Frozen snapshot (secrets excluded):
+
+```json
+{
+  "metrics": ["llm_judge"],
+  "judge": {
+    "provider": "openai_compatible",
+    "model": "gpt-4o-mini",
+    "base_url": "https://api.openai.com/v1"
+  }
+}
+```
+
+### Case result example
+
+```json
+{
+  "llm_judge": {
+    "score": 0.91,
+    "passed": true,
+    "reason": "The response is factually aligned with the reference..."
+  }
+}
+```
+
+Run-level aggregates average **scores only** (reasons stay on each CaseResult):
+
+```json
+{
+  "llm_judge": {
+    "average": 0.87,
+    "minimum": 0.61,
+    "maximum": 0.98,
+    "count": 10
+  }
+}
+```
+
+### Failure handling
+
+If the judge call/parse fails (missing key, timeout, HTTP error, invalid JSON, score outside 0..1):
+
+- that **CaseResult** is marked **FAILED** with an `error_message`
+- no silent/fallback score is written for `llm_judge`
+- the **EvaluationRun** can still become **COMPLETED** once all cases have results
+
+### Regression
+
+`llm_judge` is a normal numeric metric for regression policies — compare baseline vs current averages with `max_allowed_drop` / `min_aggregate_score`.
 
 ## Regression in EVALSURE
 
@@ -19,50 +101,25 @@ A **regression policy** defines how much quality may drop for a metric:
 
 | Field | Meaning |
 |-------|---------|
-| `metric_name` | e.g. `string_similarity`, `exact_match` |
+| `metric_name` | e.g. `string_similarity`, `exact_match`, `llm_judge` |
 | `max_allowed_drop` | Max allowed decrease (0–1). Delta = current − baseline. Fail if delta < −max_allowed_drop |
 | `min_aggregate_score` | Optional floor for the current aggregate score |
 | `max_regressed_cases` | Optional cap on case-level regressions for that metric |
 
-Statuses:
-
-| Status | Meaning |
-|--------|---------|
-| `NOT_EVALUATED` | No experiment, no baseline, or no policies |
-| `PASS` | All policies satisfied |
-| `FAIL` | At least one policy violated |
-
-`EvaluationRun.status` stays **`COMPLETED`** even when regression is `FAIL`.
-
-### Example
-
-```
-Baseline string_similarity = 0.94
-Current  string_similarity = 0.86
-Delta = -0.08
-Allowed drop = 0.05
-
-Result: REGRESSION DETECTED (FAIL)
-Because -0.08 < -0.05
-```
-
-Case-level: a case is regressed if it existed in both runs and either the baseline passed while the current failed, or the metric drop exceeds `max_allowed_drop`.
-
-Incomparable cases (missing on one side, or missing scores) are listed and skipped — they do not crash evaluation.
+Statuses: `NOT_EVALUATED` | `PASS` | `FAIL` — separate from `EvaluationRun.status`.
 
 ## Quick API flow
 
 ```bash
-# Policy
-curl -X POST "http://localhost:8000/api/v1/experiments/$EXP_ID/regression-policies" \
+# Create run with llm_judge
+curl -X POST "http://localhost:8000/api/v1/projects/$PROJECT_ID/runs" \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"metric_name":"string_similarity","max_allowed_drop":0.05,"min_aggregate_score":0.80,"max_regressed_cases":2}'
+  -d '{"dataset_version_id":"'$VERSION_ID'","metrics":["llm_judge"]}'
 
-# After baseline is set and a new COMPLETED run exists:
-curl -X POST "http://localhost:8000/api/v1/runs/$RUN_ID/evaluate-regression" \
-  -H "Authorization: Bearer $TOKEN"
-
-curl "http://localhost:8000/api/v1/runs/$RUN_ID" -H "Authorization: Bearer $TOKEN"
+# Submit outputs (scores computed server-side via judge provider)
+curl -X POST "http://localhost:8000/api/v1/runs/$RUN_ID/results" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"results":[{"test_case_id":"...","actual_output":{"answer":"..."}}]}'
 ```
 
 ## Run locally
@@ -76,13 +133,3 @@ alembic upgrade head
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 pytest
 ```
-
-## New / updated endpoints
-
-| Method | Path |
-|--------|------|
-| GET | `/api/v1/metrics` |
-| POST/GET | `/api/v1/experiments/{id}/regression-policies` |
-| DELETE | `/api/v1/regression-policies/{id}` |
-| POST | `/api/v1/runs/{id}/evaluate-regression` |
-| GET | `/api/v1/runs/{id}` — includes `regression_status` + `regression` |

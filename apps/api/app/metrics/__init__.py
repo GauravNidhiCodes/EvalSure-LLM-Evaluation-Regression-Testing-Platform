@@ -1,1 +1,1 @@
-"""Metrics package — registry of scorers used by regression evaluation."""
+"""Metrics package — registry of scorers used by evaluation and regression."""
