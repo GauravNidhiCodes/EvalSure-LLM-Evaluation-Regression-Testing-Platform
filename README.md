@@ -7,128 +7,85 @@ LLM evaluation and regression-testing platform.
 - **Phase 0** — auth, projects, API keys
 - **Phase 1 Milestone 1** — datasets, immutable versions, test cases
 - **Phase 1 Milestone 2** — evaluation runs + client-submitted case results
+- **Phase 2 Milestone 1** — experiments + baseline designation
 
-Not yet: scoring/metrics, regression, experiments, traces, dashboard, CLI/CI.
+Not yet: scoring execution, regression comparison, traces, dashboard, CLI/CI.
+
+## Concepts
+
+| Concept | Meaning |
+|---------|---------|
+| **Experiment** | Named workflow that groups related evaluation runs (e.g. “Customer Support RAG”) |
+| **Evaluation Run** | One execution against a dataset version, with frozen `config_snapshot` and submitted outputs |
+| **Baseline Run** | The completed run an experiment points to for *future* comparisons |
+
+Example:
+
+```
+Experiment: Customer Support RAG
+  Baseline: Run #12
+  New evaluation: Run #18
+
+Future milestone:
+  Compare Run #18 against Run #12
+  Detect regressions
+```
+
+Baseline assignment only stores `baseline_run_id` on the experiment. Historical runs are never rewritten. Regression comparison is **not** implemented in this milestone.
 
 ## Repository layout
 
 ```
 EvalSure/
-  README.md
-  apps/
-    api/
-      app/
-        auth/
-        projects/
-        datasets/
-        evaluations/     # Milestone 2: runs + case results
-        core/
-      alembic/
-      tests/
+  apps/api/app/
+    auth/ projects/ datasets/ evaluations/ experiments/ core/
 ```
 
-## Prerequisites
-
-- Python 3.11+
-- PostgreSQL 14+ running locally
-
-```bash
-psql -h 127.0.0.1 -d postgres -c "CREATE ROLE evalsure LOGIN PASSWORD 'evalsure';"
-psql -h 127.0.0.1 -d postgres -c "CREATE DATABASE evalsure OWNER evalsure;"
-psql -h 127.0.0.1 -d evalsure -c "GRANT ALL ON SCHEMA public TO evalsure; ALTER SCHEMA public OWNER TO evalsure;"
-```
-
-## Run the API locally
+## Run locally
 
 ```bash
 cd apps/api
-python -m venv .venv
-source .venv/bin/activate
+python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 cp .env.example .env
 alembic upgrade head
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-## Complete flow (dataset → run → results)
+## Experiments + baseline (quick example)
 
 ```bash
-TOKEN=...
-PROJECT_ID=...
-
-# 1–2) Dataset + immutable version
-DATASET_ID=$(curl -s -X POST "http://localhost:8000/api/v1/projects/$PROJECT_ID/datasets" \
+# Create experiment
+EXP=$(curl -s -X POST "http://localhost:8000/api/v1/projects/$PROJECT_ID/experiments" \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"name":"DBMS QA"}' | python -c "import sys,json; print(json.load(sys.stdin)['id'])")
+  -d '{"name":"Customer Support RAG","description":"Retrieval quality"}')
+EXP_ID=$(echo "$EXP" | python -c "import sys,json; print(json.load(sys.stdin)['id'])")
 
-VERSION=$(curl -s -X POST "http://localhost:8000/api/v1/datasets/$DATASET_ID/versions" \
-  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{
-    "test_cases": [
-      {
-        "external_id": "dbms-001",
-        "input": {"question": "What is normalization?"},
-        "expected": {"answer": "Normalization is..."},
-        "metadata": {"category": "DBMS"},
-        "tags": ["dbms"]
-      }
-    ]
-  }')
-VERSION_ID=$(echo "$VERSION" | python -c "import sys,json; print(json.load(sys.stdin)['id'])")
-CASE_ID=$(curl -s "http://localhost:8000/api/v1/dataset-versions/$VERSION_ID/test-cases" \
-  -H "Authorization: Bearer $TOKEN" | python -c "import sys,json; print(json.load(sys.stdin)[0]['id'])")
-
-# 3) Create evaluation run (config snapshot is frozen)
+# Create a run linked to the experiment (metrics stored in config_snapshot for reproducibility)
 RUN=$(curl -s -X POST "http://localhost:8000/api/v1/projects/$PROJECT_ID/runs" \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d "{
-    \"dataset_version_id\": \"$VERSION_ID\",
-    \"config_snapshot\": {
-      \"model\": \"example-model\",
-      \"prompt_version\": \"v3\",
-      \"temperature\": 0.2,
-      \"retrieval\": {\"top_k\": 5}
-    }
-  }")
+  -d "{\"experiment_id\":\"$EXP_ID\",\"dataset_version_id\":\"$VERSION_ID\",\"metrics\":[\"exact_match\",\"string_similarity\"]}")
 RUN_ID=$(echo "$RUN" | python -c "import sys,json; print(json.load(sys.stdin)['id'])")
 
-# 4–5) Submit model outputs (run becomes COMPLETED when every case has a result)
-curl -s -X POST "http://localhost:8000/api/v1/runs/$RUN_ID/results" \
-  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d "{
-    \"results\": [
-      {
-        \"test_case_id\": \"$CASE_ID\",
-        \"actual_output\": {\"answer\": \"Normalization is...\"}
-      }
-    ]
-  }"
-
-# 6) Retrieve run + results
-curl -s "http://localhost:8000/api/v1/runs/$RUN_ID" -H "Authorization: Bearer $TOKEN"
-curl -s "http://localhost:8000/api/v1/runs/$RUN_ID/results" -H "Authorization: Bearer $TOKEN"
+# After the run is COMPLETED, designate it as baseline
+curl -s -X POST "http://localhost:8000/api/v1/experiments/$EXP_ID/baseline/$RUN_ID" \
+  -H "Authorization: Bearer $TOKEN"
 ```
 
-**Lifecycle:** `PENDING` → `RUNNING` (first valid results batch) → `COMPLETED` (all cases have results). Completed runs are immutable. Scoring/metrics are not applied in this milestone.
+Creating a run **without** `experiment_id` remains supported.
 
-## API surface
+## API surface (additions)
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/health` | Liveness |
-| POST/GET | `/api/v1/auth/*`, `/projects*` | Phase 0 |
-| POST/GET | `/api/v1/projects/{id}/datasets` … | Milestone 1 datasets |
-| POST | `/api/v1/projects/{id}/runs` | Create evaluation run |
-| GET | `/api/v1/runs/{id}` | Run detail + aggregates |
-| POST | `/api/v1/runs/{id}/results` | Submit case outputs |
-| GET | `/api/v1/runs/{id}/results` | List case results |
+| POST/GET | `/api/v1/projects/{id}/experiments` | Create / list experiments |
+| GET | `/api/v1/experiments/{id}` | Experiment detail (`baseline_run_id`) |
+| GET | `/api/v1/experiments/{id}/runs` | Runs in experiment |
+| POST | `/api/v1/experiments/{id}/baseline/{run_id}` | Set completed run as baseline |
+| POST | `/api/v1/projects/{id}/runs` | Optional `experiment_id`, `metrics` |
 
 ## Tests
 
 ```bash
 cd apps/api && source .venv/bin/activate && pytest
 ```
-
-## Configuration
-
-See `.env.example`. Never commit real secrets.

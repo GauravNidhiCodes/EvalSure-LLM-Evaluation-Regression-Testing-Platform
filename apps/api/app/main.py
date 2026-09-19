@@ -7,6 +7,7 @@ from app.auth.router import router as auth_router
 from app.core.config import get_settings
 from app.datasets.router import router as datasets_router
 from app.evaluations.router import router as evaluations_router
+from app.experiments.router import router as experiments_router
 from app.projects.router import router as projects_router
 
 settings = get_settings()
@@ -36,6 +37,7 @@ app.include_router(auth_router, prefix=settings.api_prefix)
 app.include_router(projects_router, prefix=settings.api_prefix)
 app.include_router(datasets_router, prefix=settings.api_prefix)
 app.include_router(evaluations_router, prefix=settings.api_prefix)
+app.include_router(experiments_router, prefix=settings.api_prefix)
 
 
 @app.get("/health")

@@ -9,6 +9,8 @@ from app.core.models import CaseResultStatus, RunStatus
 
 class EvaluationRunCreate(BaseModel):
     dataset_version_id: UUID
+    experiment_id: UUID | None = None
+    metrics: list[str] = Field(default_factory=list)
     config_snapshot: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -16,6 +18,7 @@ class EvaluationRunCreated(BaseModel):
     id: UUID
     run_id: UUID
     status: RunStatus
+    experiment_id: UUID | None = None
 
     model_config = {"from_attributes": True}
 
@@ -33,6 +36,8 @@ class EvaluationRunOut(BaseModel):
     id: UUID
     run_id: UUID
     project_id: UUID
+    experiment_id: UUID | None = None
+    is_baseline: bool = False
     dataset_version_id: UUID
     dataset_version: DatasetVersionSummary | None = None
     status: RunStatus

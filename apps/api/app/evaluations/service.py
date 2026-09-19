@@ -12,6 +12,7 @@ from app.core.models import (
     CaseResultStatus,
     DatasetVersion,
     EvaluationRun,
+    Experiment,
     RunStatus,
     TestCase,
 )
@@ -38,16 +39,23 @@ def _run_out(
     *,
     total_cases: int,
     results: list[CaseResult] | None = None,
+    baseline_run_id: UUID | None = None,
 ) -> EvaluationRunOut:
     results = results if results is not None else list(run.case_results or [])
     completed, failed, pending = _aggregates(total_cases, results)
     version = None
     if run.dataset_version is not None:
         version = DatasetVersionSummary.model_validate(run.dataset_version)
+
+    if baseline_run_id is None and run.experiment is not None:
+        baseline_run_id = run.experiment.baseline_run_id
+
     return EvaluationRunOut(
         id=run.id,
         run_id=run.id,
         project_id=run.project_id,
+        experiment_id=run.experiment_id,
+        is_baseline=baseline_run_id is not None and run.id == baseline_run_id,
         dataset_version_id=run.dataset_version_id,
         dataset_version=version,
         status=RunStatus(run.status),
@@ -68,6 +76,19 @@ async def _count_test_cases(db: AsyncSession, dataset_version_id: UUID) -> int:
         select(func.count()).select_from(TestCase).where(TestCase.dataset_version_id == dataset_version_id)
     )
     return int(result.scalar_one())
+
+
+def _build_config_snapshot(body: EvaluationRunCreate) -> dict:
+    """Freeze reproducibility metadata at run creation. Never mutate afterwards."""
+    snapshot = dict(body.config_snapshot)
+    snapshot["dataset_version_id"] = str(body.dataset_version_id)
+    if body.experiment_id is not None:
+        snapshot["experiment_id"] = str(body.experiment_id)
+    if body.metrics:
+        snapshot["metrics"] = list(body.metrics)
+    elif "metrics" not in snapshot:
+        snapshot["metrics"] = []
+    return snapshot
 
 
 async def create_run(
@@ -92,6 +113,19 @@ async def create_run(
             detail="Dataset version does not belong to this project",
         )
 
+    experiment_id: UUID | None = None
+    if body.experiment_id is not None:
+        exp_result = await db.execute(select(Experiment).where(Experiment.id == body.experiment_id))
+        experiment = exp_result.scalar_one_or_none()
+        if experiment is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Experiment not found")
+        if experiment.project_id != project_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Experiment does not belong to this project",
+            )
+        experiment_id = experiment.id
+
     case_count = await _count_test_cases(db, version.id)
     if case_count == 0:
         raise HTTPException(
@@ -99,16 +133,21 @@ async def create_run(
             detail="Dataset version has no test cases",
         )
 
-    # Freeze config at creation — never mutate later.
     run = EvaluationRun(
         project_id=project_id,
+        experiment_id=experiment_id,
         dataset_version_id=version.id,
         status=RunStatus.PENDING.value,
-        config_snapshot=dict(body.config_snapshot),
+        config_snapshot=_build_config_snapshot(body),
     )
     db.add(run)
     await db.flush()
-    return EvaluationRunCreated(id=run.id, run_id=run.id, status=RunStatus.PENDING)
+    return EvaluationRunCreated(
+        id=run.id,
+        run_id=run.id,
+        status=RunStatus.PENDING,
+        experiment_id=run.experiment_id,
+    )
 
 
 async def get_run(
@@ -121,6 +160,7 @@ async def get_run(
         .options(
             selectinload(EvaluationRun.dataset_version),
             selectinload(EvaluationRun.case_results),
+            selectinload(EvaluationRun.experiment),
         )
         .where(EvaluationRun.id == run_id)
     )
@@ -140,7 +180,11 @@ async def submit_results(
 ) -> EvaluationResultsSubmitOut:
     result = await db.execute(
         select(EvaluationRun)
-        .options(selectinload(EvaluationRun.case_results), selectinload(EvaluationRun.dataset_version))
+        .options(
+            selectinload(EvaluationRun.case_results),
+            selectinload(EvaluationRun.dataset_version),
+            selectinload(EvaluationRun.experiment),
+        )
         .where(EvaluationRun.id == run_id)
         .with_for_update()
     )
@@ -178,7 +222,6 @@ async def submit_results(
             detail=f"Results already submitted for test_case_id: {', '.join(str(t) for t in duplicates)}",
         )
 
-    # Transition PENDING → RUNNING only after the batch has been validated.
     if run.status == RunStatus.PENDING.value:
         run.status = RunStatus.RUNNING.value
         run.started_at = datetime.now(timezone.utc)
@@ -212,7 +255,7 @@ async def submit_results(
             run.error_message = None
 
         await db.flush()
-        await db.refresh(run, attribute_names=["dataset_version"])
+        await db.refresh(run, attribute_names=["dataset_version", "experiment"])
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001
@@ -234,9 +277,7 @@ async def list_case_results(
     run_id: UUID,
     auth: AuthContext,
 ) -> list[CaseResultOut]:
-    result = await db.execute(
-        select(EvaluationRun).where(EvaluationRun.id == run_id)
-    )
+    result = await db.execute(select(EvaluationRun).where(EvaluationRun.id == run_id))
     run = result.scalar_one_or_none()
     if run is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Evaluation run not found")

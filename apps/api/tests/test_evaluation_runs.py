@@ -87,8 +87,14 @@ async def test_create_evaluation_run(client: AsyncClient) -> None:
     assert data["completed_cases"] == 0
     assert data["pending_cases"] == 2
     assert data["failed_cases"] == 0
-    assert data["config_snapshot"] == config
+    assert data["config_snapshot"]["model"] == "example-model"
+    assert data["config_snapshot"]["prompt_version"] == "v3"
+    assert data["config_snapshot"]["temperature"] == 0.2
+    assert data["config_snapshot"]["dataset_version_id"] == ctx["version_id"]
+    assert data["config_snapshot"]["metrics"] == []
     assert data["dataset_version"]["id"] == ctx["version_id"]
+    assert data["experiment_id"] is None
+    assert data["is_baseline"] is False
 
 
 @pytest.mark.asyncio
@@ -114,7 +120,7 @@ async def test_submit_results_and_complete(client: AsyncClient) -> None:
         },
     )
     run_id = created.json()["id"]
-    frozen = {"model": "m1", "retrieval": {"top_k": 5}}
+    frozen_model = "m1"
 
     partial = await client.post(
         f"/api/v1/runs/{run_id}/results",
@@ -133,7 +139,9 @@ async def test_submit_results_and_complete(client: AsyncClient) -> None:
     assert run["status"] == "RUNNING"
     assert run["completed_cases"] == 1
     assert run["pending_cases"] == 1
-    assert run["config_snapshot"] == frozen
+    assert run["config_snapshot"]["model"] == frozen_model
+    assert run["config_snapshot"]["retrieval"] == {"top_k": 5}
+    assert run["config_snapshot"]["dataset_version_id"] == ctx["version_id"]
 
     remaining = await client.post(
         f"/api/v1/runs/{run_id}/results",
@@ -153,7 +161,8 @@ async def test_submit_results_and_complete(client: AsyncClient) -> None:
     assert done["completed_cases"] == 2
     assert done["pending_cases"] == 0
     assert done["finished_at"] is not None
-    assert done["config_snapshot"] == frozen
+    assert done["config_snapshot"]["model"] == frozen_model
+    assert done["config_snapshot"]["dataset_version_id"] == ctx["version_id"]
 
     listed = await client.get(f"/api/v1/runs/{run_id}/results", headers=ctx["headers"])
     assert listed.status_code == 200
@@ -287,7 +296,8 @@ async def test_completed_run_immutable(client: AsyncClient) -> None:
     )
     detail = await client.get(f"/api/v1/runs/{run_id}", headers=ctx["headers"])
     assert detail.json()["status"] == "COMPLETED"
-    assert detail.json()["config_snapshot"] == {"model": "frozen"}
+    assert detail.json()["config_snapshot"]["model"] == "frozen"
+    assert detail.json()["config_snapshot"]["dataset_version_id"] == ctx["version_id"]
 
     blocked = await client.post(
         f"/api/v1/runs/{run_id}/results",
@@ -302,7 +312,8 @@ async def test_completed_run_immutable(client: AsyncClient) -> None:
 
     # Config remains frozen
     again = await client.get(f"/api/v1/runs/{run_id}", headers=ctx["headers"])
-    assert again.json()["config_snapshot"] == {"model": "frozen"}
+    assert again.json()["config_snapshot"]["model"] == "frozen"
+    assert again.json()["config_snapshot"]["dataset_version_id"] == ctx["version_id"]
 
 
 @pytest.mark.asyncio

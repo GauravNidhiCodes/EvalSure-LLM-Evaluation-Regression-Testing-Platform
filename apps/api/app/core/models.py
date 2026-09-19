@@ -59,6 +59,9 @@ class Project(Base):
     evaluation_runs: Mapped[list["EvaluationRun"]] = relationship(
         back_populates="project", cascade="all, delete-orphan"
     )
+    experiments: Mapped[list["Experiment"]] = relationship(
+        back_populates="project", cascade="all, delete-orphan"
+    )
 
 
 class ApiKey(Base):
@@ -144,6 +147,35 @@ class TestCase(Base):
     case_results: Mapped[list["CaseResult"]] = relationship(back_populates="test_case")
 
 
+class Experiment(Base):
+    """Groups evaluation runs for a workflow and holds the active baseline run pointer."""
+
+    __tablename__ = "experiments"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    baseline_run_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("evaluation_runs.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    project: Mapped["Project"] = relationship(back_populates="experiments")
+    evaluation_runs: Mapped[list["EvaluationRun"]] = relationship(
+        back_populates="experiment",
+        foreign_keys="EvaluationRun.experiment_id",
+    )
+    baseline_run: Mapped["EvaluationRun | None"] = relationship(
+        foreign_keys=[baseline_run_id],
+        post_update=True,
+    )
+
+
 class EvaluationRun(Base):
     """Evaluation run against an immutable DatasetVersion. Outputs are client-submitted."""
 
@@ -152,6 +184,9 @@ class EvaluationRun(Base):
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     project_id: Mapped[uuid.UUID] = mapped_column(
         Uuid, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    experiment_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("experiments.id", ondelete="SET NULL"), nullable=True, index=True
     )
     dataset_version_id: Mapped[uuid.UUID] = mapped_column(
         Uuid, ForeignKey("dataset_versions.id", ondelete="RESTRICT"), nullable=False, index=True
@@ -166,6 +201,10 @@ class EvaluationRun(Base):
     )
 
     project: Mapped["Project"] = relationship(back_populates="evaluation_runs")
+    experiment: Mapped["Experiment | None"] = relationship(
+        back_populates="evaluation_runs",
+        foreign_keys=[experiment_id],
+    )
     dataset_version: Mapped["DatasetVersion"] = relationship(back_populates="evaluation_runs")
     case_results: Mapped[list["CaseResult"]] = relationship(
         back_populates="run", cascade="all, delete-orphan"
