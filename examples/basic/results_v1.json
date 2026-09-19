@@ -1,0 +1,14 @@
+{
+  "comment": "Good outputs keyed by external_id. run_walkthrough.py maps these to test_case_id UUIDs.",
+  "results_by_external_id": {
+    "refund-policy": {
+      "answer": "Refunds are available within 30 days."
+    },
+    "capital-france": {
+      "answer": "Paris is the capital of France."
+    },
+    "hours": {
+      "answer": "We are open Monday through Friday, 9am to 5pm."
+    }
+  }
+}

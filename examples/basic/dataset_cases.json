@@ -1,0 +1,22 @@
+{
+  "test_cases": [
+    {
+      "external_id": "refund-policy",
+      "input": { "question": "What is your refund policy?" },
+      "expected": { "answer": "Refunds are available within 30 days." },
+      "tags": ["policy"]
+    },
+    {
+      "external_id": "capital-france",
+      "input": { "question": "What is the capital of France?" },
+      "expected": { "answer": "Paris is the capital of France." },
+      "tags": ["trivia"]
+    },
+    {
+      "external_id": "hours",
+      "input": { "question": "When are you open?" },
+      "expected": { "answer": "We are open Monday through Friday, 9am to 5pm." },
+      "tags": ["ops"]
+    }
+  ]
+}

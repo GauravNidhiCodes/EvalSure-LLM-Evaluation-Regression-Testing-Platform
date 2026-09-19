@@ -1,0 +1,14 @@
+{
+  "comment": "Worse outputs for the same cases — string similarity drops vs baseline.",
+  "results_by_external_id": {
+    "refund-policy": {
+      "answer": "Maybe you can get money back sometimes."
+    },
+    "capital-france": {
+      "answer": "I think it might be Lyon?"
+    },
+    "hours": {
+      "answer": "Call us later."
+    }
+  }
+}
