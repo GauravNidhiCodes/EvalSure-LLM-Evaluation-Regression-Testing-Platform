@@ -13,6 +13,7 @@ from app.core.models import (
     DatasetVersion,
     EvaluationRun,
     Experiment,
+    RegressionStatus,
     RunStatus,
     TestCase,
 )
@@ -25,6 +26,7 @@ from app.evaluations.schemas import (
     EvaluationRunCreated,
     EvaluationRunOut,
 )
+from app.regression.service import _regression_info_from_summary
 
 
 def _aggregates(total_cases: int, results: list[CaseResult]) -> tuple[int, int, int]:
@@ -50,6 +52,15 @@ def _run_out(
     if baseline_run_id is None and run.experiment is not None:
         baseline_run_id = run.experiment.baseline_run_id
 
+    regression_status = RegressionStatus(
+        getattr(run, "regression_status", None) or RegressionStatus.NOT_EVALUATED.value
+    )
+    regression = _regression_info_from_summary(
+        getattr(run, "regression_summary", None),
+        regression_status.value,
+        baseline_run_id,
+    )
+
     return EvaluationRunOut(
         id=run.id,
         run_id=run.id,
@@ -68,6 +79,9 @@ def _run_out(
         completed_cases=completed,
         failed_cases=failed,
         pending_cases=pending,
+        regression_status=regression_status,
+        baseline_run_id=baseline_run_id,
+        regression=regression,
     )
 
 
@@ -300,6 +314,7 @@ async def list_case_results(
                 actual_output=cr.actual_output,
                 status=CaseResultStatus(cr.status),
                 metric_scores=cr.metric_scores or {},
+                is_regression=bool(getattr(cr, "is_regression", False)),
                 error_message=cr.error_message,
                 created_at=cr.created_at,
             )

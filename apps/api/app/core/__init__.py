@@ -9,6 +9,8 @@ from app.core.models import (
     EvaluationRun,
     Experiment,
     Project,
+    RegressionPolicy,
+    RegressionStatus,
     RunStatus,
     TestCase,
     User,
@@ -24,6 +26,8 @@ __all__ = [
     "Experiment",
     "EvaluationRun",
     "CaseResult",
+    "RegressionPolicy",
     "RunStatus",
     "CaseResultStatus",
+    "RegressionStatus",
 ]

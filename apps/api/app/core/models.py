@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, Uuid, func
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON
 
@@ -21,6 +21,12 @@ class CaseResultStatus(str, enum.Enum):
     PENDING = "PENDING"
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
+
+
+class RegressionStatus(str, enum.Enum):
+    NOT_EVALUATED = "NOT_EVALUATED"
+    PASS = "PASS"
+    FAIL = "FAIL"
 
 
 class User(Base):
@@ -174,6 +180,9 @@ class Experiment(Base):
         foreign_keys=[baseline_run_id],
         post_update=True,
     )
+    regression_policies: Mapped[list["RegressionPolicy"]] = relationship(
+        back_populates="experiment", cascade="all, delete-orphan"
+    )
 
 
 class EvaluationRun(Base):
@@ -194,6 +203,10 @@ class EvaluationRun(Base):
     status: Mapped[str] = mapped_column(String(32), nullable=False, default=RunStatus.PENDING.value)
     config_snapshot: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    regression_status: Mapped[str] = mapped_column(
+        String(32), nullable=False, default=RegressionStatus.NOT_EVALUATED.value
+    )
+    regression_summary: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -227,6 +240,7 @@ class CaseResult(Base):
         String(32), nullable=False, default=CaseResultStatus.PENDING.value
     )
     metric_scores: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    is_regression: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -234,3 +248,26 @@ class CaseResult(Base):
 
     run: Mapped["EvaluationRun"] = relationship(back_populates="case_results")
     test_case: Mapped["TestCase"] = relationship(back_populates="case_results")
+
+
+class RegressionPolicy(Base):
+    """Per-experiment, per-metric quality thresholds for regression detection."""
+
+    __tablename__ = "regression_policies"
+    __table_args__ = (
+        UniqueConstraint("experiment_id", "metric_name", name="uq_experiment_metric_policy"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    experiment_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("experiments.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    metric_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    max_allowed_drop: Mapped[float] = mapped_column(Float, nullable=False)
+    min_aggregate_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    max_regressed_cases: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    experiment: Mapped["Experiment"] = relationship(back_populates="regression_policies")

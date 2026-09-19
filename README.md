@@ -4,41 +4,65 @@ LLM evaluation and regression-testing platform.
 
 ## Current status
 
-- **Phase 0** — auth, projects, API keys
-- **Phase 1 Milestone 1** — datasets, immutable versions, test cases
-- **Phase 1 Milestone 2** — evaluation runs + client-submitted case results
-- **Phase 2 Milestone 1** — experiments + baseline designation
+- Phase 0 — auth, projects, API keys
+- Phase 1 — datasets, evaluation runs + case results
+- Phase 2 Milestone 1 — experiments + baseline designation
+- Phase 2 Milestone 2 — **regression detection engine**
 
-Not yet: scoring execution, regression comparison, traces, dashboard, CLI/CI.
+Not yet: LLM-as-judge, traces, dashboard, CLI/CI, Redis workers.
 
-## Concepts
+## Regression in EVALSURE
 
-| Concept | Meaning |
-|---------|---------|
-| **Experiment** | Named workflow that groups related evaluation runs (e.g. “Customer Support RAG”) |
-| **Evaluation Run** | One execution against a dataset version, with frozen `config_snapshot` and submitted outputs |
-| **Baseline Run** | The completed run an experiment points to for *future* comparisons |
+A **baseline run** is a completed evaluation run designated on an experiment.
 
-Example:
+A **regression policy** defines how much quality may drop for a metric:
+
+| Field | Meaning |
+|-------|---------|
+| `metric_name` | e.g. `string_similarity`, `exact_match` |
+| `max_allowed_drop` | Max allowed decrease (0–1). Delta = current − baseline. Fail if delta < −max_allowed_drop |
+| `min_aggregate_score` | Optional floor for the current aggregate score |
+| `max_regressed_cases` | Optional cap on case-level regressions for that metric |
+
+Statuses:
+
+| Status | Meaning |
+|--------|---------|
+| `NOT_EVALUATED` | No experiment, no baseline, or no policies |
+| `PASS` | All policies satisfied |
+| `FAIL` | At least one policy violated |
+
+`EvaluationRun.status` stays **`COMPLETED`** even when regression is `FAIL`.
+
+### Example
 
 ```
-Experiment: Customer Support RAG
-  Baseline: Run #12
-  New evaluation: Run #18
+Baseline string_similarity = 0.94
+Current  string_similarity = 0.86
+Delta = -0.08
+Allowed drop = 0.05
 
-Future milestone:
-  Compare Run #18 against Run #12
-  Detect regressions
+Result: REGRESSION DETECTED (FAIL)
+Because -0.08 < -0.05
 ```
 
-Baseline assignment only stores `baseline_run_id` on the experiment. Historical runs are never rewritten. Regression comparison is **not** implemented in this milestone.
+Case-level: a case is regressed if it existed in both runs and either the baseline passed while the current failed, or the metric drop exceeds `max_allowed_drop`.
 
-## Repository layout
+Incomparable cases (missing on one side, or missing scores) are listed and skipped — they do not crash evaluation.
 
-```
-EvalSure/
-  apps/api/app/
-    auth/ projects/ datasets/ evaluations/ experiments/ core/
+## Quick API flow
+
+```bash
+# Policy
+curl -X POST "http://localhost:8000/api/v1/experiments/$EXP_ID/regression-policies" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"metric_name":"string_similarity","max_allowed_drop":0.05,"min_aggregate_score":0.80,"max_regressed_cases":2}'
+
+# After baseline is set and a new COMPLETED run exists:
+curl -X POST "http://localhost:8000/api/v1/runs/$RUN_ID/evaluate-regression" \
+  -H "Authorization: Bearer $TOKEN"
+
+curl "http://localhost:8000/api/v1/runs/$RUN_ID" -H "Authorization: Bearer $TOKEN"
 ```
 
 ## Run locally
@@ -50,42 +74,15 @@ pip install -e ".[dev]"
 cp .env.example .env
 alembic upgrade head
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+pytest
 ```
 
-## Experiments + baseline (quick example)
+## New / updated endpoints
 
-```bash
-# Create experiment
-EXP=$(curl -s -X POST "http://localhost:8000/api/v1/projects/$PROJECT_ID/experiments" \
-  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"name":"Customer Support RAG","description":"Retrieval quality"}')
-EXP_ID=$(echo "$EXP" | python -c "import sys,json; print(json.load(sys.stdin)['id'])")
-
-# Create a run linked to the experiment (metrics stored in config_snapshot for reproducibility)
-RUN=$(curl -s -X POST "http://localhost:8000/api/v1/projects/$PROJECT_ID/runs" \
-  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d "{\"experiment_id\":\"$EXP_ID\",\"dataset_version_id\":\"$VERSION_ID\",\"metrics\":[\"exact_match\",\"string_similarity\"]}")
-RUN_ID=$(echo "$RUN" | python -c "import sys,json; print(json.load(sys.stdin)['id'])")
-
-# After the run is COMPLETED, designate it as baseline
-curl -s -X POST "http://localhost:8000/api/v1/experiments/$EXP_ID/baseline/$RUN_ID" \
-  -H "Authorization: Bearer $TOKEN"
-```
-
-Creating a run **without** `experiment_id` remains supported.
-
-## API surface (additions)
-
-| Method | Path | Description |
-|--------|------|-------------|
-| POST/GET | `/api/v1/projects/{id}/experiments` | Create / list experiments |
-| GET | `/api/v1/experiments/{id}` | Experiment detail (`baseline_run_id`) |
-| GET | `/api/v1/experiments/{id}/runs` | Runs in experiment |
-| POST | `/api/v1/experiments/{id}/baseline/{run_id}` | Set completed run as baseline |
-| POST | `/api/v1/projects/{id}/runs` | Optional `experiment_id`, `metrics` |
-
-## Tests
-
-```bash
-cd apps/api && source .venv/bin/activate && pytest
-```
+| Method | Path |
+|--------|------|
+| GET | `/api/v1/metrics` |
+| POST/GET | `/api/v1/experiments/{id}/regression-policies` |
+| DELETE | `/api/v1/regression-policies/{id}` |
+| POST | `/api/v1/runs/{id}/evaluate-regression` |
+| GET | `/api/v1/runs/{id}` — includes `regression_status` + `regression` |

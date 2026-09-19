@@ -4,7 +4,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from app.core.models import CaseResultStatus, RunStatus
+from app.core.models import CaseResultStatus, RegressionStatus, RunStatus
+from app.regression.schemas import RegressionInfo
 
 
 class EvaluationRunCreate(BaseModel):
@@ -50,6 +51,9 @@ class EvaluationRunOut(BaseModel):
     completed_cases: int
     failed_cases: int
     pending_cases: int
+    regression_status: RegressionStatus = RegressionStatus.NOT_EVALUATED
+    baseline_run_id: UUID | None = None
+    regression: RegressionInfo | None = None
 
 
 class CaseResultIn(BaseModel):
@@ -93,6 +97,7 @@ class CaseResultOut(BaseModel):
     actual_output: dict[str, Any] | None
     status: CaseResultStatus
     metric_scores: dict[str, Any]
+    is_regression: bool = False
     error_message: str | None = None
     created_at: datetime
 
