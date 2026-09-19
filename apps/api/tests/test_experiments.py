@@ -50,7 +50,7 @@ async def _project_with_version(client: AsyncClient) -> dict:
         "headers": headers,
         "project_id": project_id,
         "version_id": version.json()["id"],
-        "case_ids": [c["id"] for c in cases.json()],
+        "case_ids": [c["id"] for c in cases.json()["items"]],
     }
 
 
@@ -102,7 +102,7 @@ async def test_experiment_create_list_get(client: AsyncClient) -> None:
         headers=ctx["headers"],
     )
     assert listed.status_code == 200
-    assert any(item["id"] == body["id"] for item in listed.json())
+    assert any(item["id"] == body["id"] for item in listed.json()["items"])
 
     fetched = await client.get(f"/api/v1/experiments/{body['id']}", headers=ctx["headers"])
     assert fetched.status_code == 200
@@ -156,8 +156,8 @@ async def test_create_run_with_experiment(client: AsyncClient) -> None:
 
     runs = await client.get(f"/api/v1/experiments/{exp_id}/runs", headers=ctx["headers"])
     assert runs.status_code == 200
-    assert len(runs.json()) == 1
-    assert runs.json()[0]["experiment_id"] == exp_id
+    assert len(runs.json()["items"]) == 1
+    assert runs.json()["items"][0]["experiment_id"] == exp_id
 
 
 @pytest.mark.asyncio

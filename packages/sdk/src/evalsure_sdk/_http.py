@@ -103,17 +103,24 @@ class HttpTransport:
         if response.content:
             try:
                 payload = response.json()
-                detail = payload.get("detail", payload) if isinstance(payload, dict) else payload
-                if isinstance(detail, str):
-                    message = detail
-                elif isinstance(detail, list):
-                    # FastAPI validation errors
-                    message = "; ".join(
-                        str(item.get("msg", item)) if isinstance(item, dict) else str(item)
-                        for item in detail
-                    )
-                elif detail is not None:
-                    message = str(detail)
+                if isinstance(payload, dict) and isinstance(payload.get("error"), dict):
+                    err = payload["error"]
+                    detail = err
+                    if isinstance(err.get("message"), str):
+                        message = err["message"]
+                else:
+                    detail = payload.get("detail", payload) if isinstance(payload, dict) else payload
+                    if isinstance(detail, str):
+                        message = detail
+                    elif isinstance(detail, list):
+                        message = "; ".join(
+                            str(item.get("msg", item)) if isinstance(item, dict) else str(item)
+                            for item in detail
+                        )
+                    elif isinstance(detail, dict) and "message" in detail:
+                        message = str(detail["message"])
+                    elif detail is not None:
+                        message = str(detail)
             except ValueError:
                 message = response.text[:500] or message
 

@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.security import AuthContext, get_auth_context
 from app.core.database import get_db
+from app.core.pagination import Page, page_params
 from app.evaluations.schemas import EvaluationRunOut
 from app.experiments import service as experiments_service
 from app.experiments.schemas import ExperimentCreate, ExperimentOut
@@ -26,13 +27,14 @@ async def create_experiment(
     return await experiments_service.create_experiment(db, project_id, auth, body)
 
 
-@router.get("/projects/{project_id}/experiments", response_model=list[ExperimentOut])
+@router.get("/projects/{project_id}/experiments", response_model=Page[ExperimentOut])
 async def list_experiments(
     project_id: UUID,
     auth: AuthContext = Depends(get_auth_context),
     db: AsyncSession = Depends(get_db),
-) -> list[ExperimentOut]:
-    return await experiments_service.list_experiments(db, project_id, auth)
+    params=Depends(page_params),
+) -> Page[ExperimentOut]:
+    return await experiments_service.list_experiments(db, project_id, auth, params)
 
 
 @router.get("/experiments/{experiment_id}", response_model=ExperimentOut)
@@ -44,13 +46,14 @@ async def get_experiment(
     return await experiments_service.get_experiment(db, experiment_id, auth)
 
 
-@router.get("/experiments/{experiment_id}/runs", response_model=list[EvaluationRunOut])
+@router.get("/experiments/{experiment_id}/runs", response_model=Page[EvaluationRunOut])
 async def list_experiment_runs(
     experiment_id: UUID,
     auth: AuthContext = Depends(get_auth_context),
     db: AsyncSession = Depends(get_db),
-) -> list[EvaluationRunOut]:
-    return await experiments_service.list_experiment_runs(db, experiment_id, auth)
+    params=Depends(page_params),
+) -> Page[EvaluationRunOut]:
+    return await experiments_service.list_experiment_runs(db, experiment_id, auth, params)
 
 
 @router.post(

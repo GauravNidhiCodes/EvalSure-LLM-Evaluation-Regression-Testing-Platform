@@ -1,8 +1,9 @@
-import { apiFetch } from "@/lib/api/client";
+import { apiFetch, unwrapPage, type Page } from "@/lib/api/client";
 import type { Project } from "@/types/api";
 
 export async function listProjects(): Promise<Project[]> {
-  return apiFetch<Project[]>("/projects");
+  const page = await apiFetch<Page<Project>>("/projects?page_size=200");
+  return unwrapPage(page);
 }
 
 export async function getProject(projectId: string): Promise<Project> {

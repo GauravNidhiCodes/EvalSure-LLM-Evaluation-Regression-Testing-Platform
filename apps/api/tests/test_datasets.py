@@ -66,7 +66,7 @@ async def test_dataset_create_and_list(client: AsyncClient) -> None:
 
     listed = await client.get(f"/api/v1/projects/{project_id}/datasets", headers=headers)
     assert listed.status_code == 200
-    assert any(item["id"] == dataset_id for item in listed.json())
+    assert any(item["id"] == dataset_id for item in listed.json()["items"])
 
     fetched = await client.get(f"/api/v1/datasets/{dataset_id}", headers=headers)
     assert fetched.status_code == 200
@@ -99,7 +99,7 @@ async def test_version_creation_and_test_case_retrieval(client: AsyncClient) -> 
 
     versions = await client.get(f"/api/v1/datasets/{dataset_id}/versions", headers=headers)
     assert versions.status_code == 200
-    assert versions.json()[0]["id"] == version_id
+    assert versions.json()["items"][0]["id"] == version_id
 
     detail = await client.get(f"/api/v1/dataset-versions/{version_id}", headers=headers)
     assert detail.status_code == 200
@@ -107,7 +107,7 @@ async def test_version_creation_and_test_case_retrieval(client: AsyncClient) -> 
 
     cases = await client.get(f"/api/v1/dataset-versions/{version_id}/test-cases", headers=headers)
     assert cases.status_code == 200
-    ids = [c["external_id"] for c in cases.json()]
+    ids = [c["external_id"] for c in cases.json()["items"]]
     assert ids == ["dbms-001", "dbms-002"]
 
 

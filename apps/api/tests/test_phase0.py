@@ -47,8 +47,8 @@ async def test_register_login_and_create_project(client: AsyncClient) -> None:
 
     listed = await client.get(f"/api/v1/projects/{project_id}/api-keys", headers=headers)
     assert listed.status_code == 200
-    assert listed.json()[0]["key_prefix"] == payload["key_prefix"]
-    assert "api_key" not in listed.json()[0]
+    assert listed.json()["items"][0]["key_prefix"] == payload["key_prefix"]
+    assert "api_key" not in listed.json()["items"][0]
 
     # Authenticate with API key
     me_via_key = await client.get(

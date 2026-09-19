@@ -1,4 +1,4 @@
-import { apiFetch } from "@/lib/api/client";
+import { apiFetch, unwrapPage, type Page } from "@/lib/api/client";
 import type { CaseResult, EvaluationRun } from "@/types/api";
 
 export async function getRun(runId: string): Promise<EvaluationRun> {
@@ -6,7 +6,8 @@ export async function getRun(runId: string): Promise<EvaluationRun> {
 }
 
 export async function listCaseResults(runId: string): Promise<CaseResult[]> {
-  return apiFetch<CaseResult[]>(`/runs/${runId}/results`);
+  const page = await apiFetch<Page<CaseResult>>(`/runs/${runId}/results?page_size=200`);
+  return unwrapPage(page);
 }
 
 export async function listMetrics(): Promise<string[]> {

@@ -171,7 +171,7 @@ async def test_api_key_lifecycle(client: AsyncClient) -> None:
 
     listed = await client.get(f"/api/v1/projects/{project_id}/api-keys", headers=headers)
     assert listed.status_code == 200
-    item = listed.json()[0]
+    item = listed.json()["items"][0]
     assert "api_key" not in item
     assert "key_hash" not in item
     assert item["status"] == "active"
@@ -187,8 +187,8 @@ async def test_api_key_lifecycle(client: AsyncClient) -> None:
     assert revoke.status_code == 204
 
     listed_after = await client.get(f"/api/v1/projects/{project_id}/api-keys", headers=headers)
-    assert listed_after.json()[0]["status"] == "revoked"
-    assert listed_after.json()[0]["revoked_at"] is not None
+    assert listed_after.json()["items"][0]["status"] == "revoked"
+    assert listed_after.json()["items"][0]["revoked_at"] is not None
 
     rejected = await client.get("/api/v1/auth/me", headers={"X-API-Key": raw})
     assert rejected.status_code == 401

@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.security import AuthContext, get_auth_context, get_current_user
 from app.core.database import get_db
 from app.core.models import User
+from app.core.pagination import Page, page_params
 from app.projects import service as projects_service
 from app.projects.schemas import (
     ApiKeyCreate,
@@ -28,13 +29,13 @@ async def create_project(
     return ProjectOut.model_validate(project)
 
 
-@router.get("", response_model=list[ProjectOut])
+@router.get("", response_model=Page[ProjectOut])
 async def list_projects(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> list[ProjectOut]:
-    projects = await projects_service.list_projects(db, user)
-    return [ProjectOut.model_validate(p) for p in projects]
+    params=Depends(page_params),
+) -> Page[ProjectOut]:
+    return await projects_service.list_projects(db, user, params)
 
 
 @router.get("/{project_id}", response_model=ProjectOut)
@@ -61,14 +62,14 @@ async def create_api_key(
     return await projects_service.create_api_key(db, project_id, user, body)
 
 
-@router.get("/{project_id}/api-keys", response_model=list[ApiKeyOut])
+@router.get("/{project_id}/api-keys", response_model=Page[ApiKeyOut])
 async def list_api_keys(
     project_id: UUID,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> list[ApiKeyOut]:
-    keys = await projects_service.list_api_keys(db, project_id, user)
-    return [ApiKeyOut.model_validate(k) for k in keys]
+    params=Depends(page_params),
+) -> Page[ApiKeyOut]:
+    return await projects_service.list_api_keys(db, project_id, user, params)
 
 
 @router.delete("/{project_id}/api-keys/{key_id}", status_code=status.HTTP_204_NO_CONTENT)

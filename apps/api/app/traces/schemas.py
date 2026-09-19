@@ -24,6 +24,9 @@ class TraceEventOut(BaseModel):
 class RunTracesOut(BaseModel):
     run_id: UUID
     events: list[TraceEventOut]
+    page: int = 1
+    page_size: int = 50
+    total: int = 0
 
 
 class CaseTracesOut(BaseModel):

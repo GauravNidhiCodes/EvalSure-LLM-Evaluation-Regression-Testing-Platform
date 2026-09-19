@@ -10,6 +10,8 @@ export function ErrorState({
 }) {
   let title = "Something went wrong";
   let detail = "An unexpected error occurred.";
+  let actionHref = retryHref;
+  let actionLabel = "Retry";
 
   if (error instanceof ApiError) {
     if (error.status === 0) {
@@ -17,12 +19,14 @@ export function ErrorState({
       detail = error.message;
     } else if (error.status === 401 || error.status === 403) {
       title = "Unauthorized";
-      detail = "Sign in at /login, or configure a server-only JWT session.";
+      detail = error.message || "Sign in required to access this resource.";
+      actionHref = "/login";
+      actionLabel = "Sign in";
     } else if (error.status === 404) {
       title = "Not found";
       detail = error.message;
     } else {
-      title = `API error (${error.status})`;
+      title = error.code ? `${error.code}` : `API error (${error.status})`;
       detail = error.message;
     }
   } else if (error instanceof Error) {
@@ -33,12 +37,12 @@ export function ErrorState({
     <div className="rounded border border-rose-800/50 bg-rose-950/30 px-4 py-5">
       <p className="text-sm font-medium text-rose-200">{title}</p>
       <p className="mt-2 text-sm text-rose-100/80">{detail}</p>
-      {retryHref ? (
+      {actionHref ? (
         <Link
-          href={retryHref}
+          href={actionHref}
           className="mt-4 inline-block rounded border border-rose-700/60 px-3 py-1.5 text-xs text-rose-100 hover:bg-rose-950/50"
         >
-          Retry
+          {actionLabel}
         </Link>
       ) : null}
     </div>

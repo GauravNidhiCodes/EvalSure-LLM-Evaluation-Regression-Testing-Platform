@@ -174,7 +174,7 @@ async def _setup(client: AsyncClient) -> dict:
         f"/api/v1/dataset-versions/{version.json()['id']}/test-cases",
         headers=headers,
     )
-    case_map = {c["external_id"]: c["id"] for c in cases.json()}
+    case_map = {c["external_id"]: c["id"] for c in cases.json()["items"]}
     exp = await client.post(
         f"/api/v1/projects/{project_id}/experiments",
         headers=headers,
@@ -241,7 +241,7 @@ async def test_run_with_llm_judge_stores_score_and_reason(client: AsyncClient) -
 
     cases = await client.get(f"/api/v1/runs/{run_id}/results", headers=ctx["headers"])
     assert cases.status_code == 200
-    for row in cases.json():
+    for row in cases.json()["items"]:
         lj = row["metric_scores"]["llm_judge"]
         assert lj["score"] == pytest.approx(0.91)
         assert "factually aligned" in lj["reason"]
@@ -275,7 +275,7 @@ async def test_judge_failure_marks_case_failed_not_run(client: AsyncClient) -> N
     assert body["status"] == "COMPLETED"
     assert body["failed_cases"] == 2
     cases = await client.get(f"/api/v1/runs/{run_id}/results", headers=ctx["headers"])
-    for row in cases.json():
+    for row in cases.json()["items"]:
         assert row["status"] == "FAILED"
         assert "llm_judge" in (row["error_message"] or "")
         assert "llm_judge" not in row["metric_scores"]

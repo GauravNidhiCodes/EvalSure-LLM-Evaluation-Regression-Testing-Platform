@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { apiFetch } from "@/lib/api/client";
+import { apiFetch, unwrapPage, type Page } from "@/lib/api/client";
 import type { ApiKeyCreated, ApiKeyMeta } from "@/types/api";
 
 export type CreateApiKeyResult =
@@ -52,5 +52,6 @@ export async function revokeProjectApiKey(
 }
 
 export async function listProjectApiKeys(projectId: string): Promise<ApiKeyMeta[]> {
-  return apiFetch<ApiKeyMeta[]>(`/projects/${projectId}/api-keys`);
+  const page = await apiFetch<Page<ApiKeyMeta>>(`/projects/${projectId}/api-keys?page_size=200`);
+  return unwrapPage(page);
 }

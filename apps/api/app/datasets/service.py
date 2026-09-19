@@ -6,7 +6,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.auth.security import AuthContext, require_project_access
+from app.core.errors import ErrorCode, app_http_error
 from app.core.models import Dataset, DatasetVersion, TestCase
+from app.core.pagination import Page, PageParams, paginate
 from app.datasets.hashing import content_hash_for_cases
 from app.datasets.schemas import (
     DatasetCreate,
@@ -85,12 +87,24 @@ async def list_datasets(
     db: AsyncSession,
     project_id: UUID,
     auth: AuthContext,
-) -> list[DatasetOut]:
+    params: PageParams,
+) -> Page[DatasetOut]:
     await require_project_access(project_id, auth, db)
-    result = await db.execute(
-        select(Dataset).where(Dataset.project_id == project_id).order_by(Dataset.created_at.desc())
+    total = int(
+        (
+            await db.execute(
+                select(func.count()).select_from(Dataset).where(Dataset.project_id == project_id)
+            )
+        ).scalar_one()
     )
-    return [_dataset_out(d) for d in result.scalars().all()]
+    result = await db.execute(
+        select(Dataset)
+        .where(Dataset.project_id == project_id)
+        .order_by(Dataset.created_at.desc())
+        .offset(params.offset)
+        .limit(params.limit)
+    )
+    return paginate([_dataset_out(d) for d in result.scalars().all()], total, params)
 
 
 async def get_dataset(
@@ -156,23 +170,37 @@ async def list_versions(
     db: AsyncSession,
     dataset_id: UUID,
     auth: AuthContext,
-) -> list[DatasetVersionOut]:
+    params: PageParams,
+) -> Page[DatasetVersionOut]:
     await _get_dataset_for_auth(db, dataset_id, auth)
+    total = int(
+        (
+            await db.execute(
+                select(func.count())
+                .select_from(DatasetVersion)
+                .where(DatasetVersion.dataset_id == dataset_id)
+            )
+        ).scalar_one()
+    )
     result = await db.execute(
         select(DatasetVersion)
         .where(DatasetVersion.dataset_id == dataset_id)
         .order_by(DatasetVersion.version.desc())
+        .offset(params.offset)
+        .limit(params.limit)
     )
     versions = list(result.scalars().all())
-    out: list[DatasetVersionOut] = []
-    for version in versions:
-        count = await db.execute(
-            select(func.count())
-            .select_from(TestCase)
-            .where(TestCase.dataset_version_id == version.id)
+    version_ids = [v.id for v in versions]
+    counts: dict[UUID, int] = {}
+    if version_ids:
+        count_rows = await db.execute(
+            select(TestCase.dataset_version_id, func.count())
+            .where(TestCase.dataset_version_id.in_(version_ids))
+            .group_by(TestCase.dataset_version_id)
         )
-        out.append(_version_out(version, test_case_count=int(count.scalar_one())))
-    return out
+        counts = {vid: int(n) for vid, n in count_rows.all()}
+    items = [_version_out(v, test_case_count=counts.get(v.id, 0)) for v in versions]
+    return paginate(items, total, params)
 
 
 async def get_version(
@@ -196,7 +224,8 @@ async def list_test_cases(
     db: AsyncSession,
     version_id: UUID,
     auth: AuthContext,
-) -> list[TestCaseOut]:
+    params: PageParams,
+) -> Page[TestCaseOut]:
     result = await db.execute(
         select(DatasetVersion)
         .options(selectinload(DatasetVersion.dataset))
@@ -204,12 +233,27 @@ async def list_test_cases(
     )
     version = result.scalar_one_or_none()
     if version is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset version not found")
+        raise app_http_error(
+            status.HTTP_404_NOT_FOUND,
+            ErrorCode.DATASET_VERSION_NOT_FOUND,
+            "Dataset version not found",
+        )
     await require_project_access(version.dataset.project_id, auth, db)
 
+    total = int(
+        (
+            await db.execute(
+                select(func.count())
+                .select_from(TestCase)
+                .where(TestCase.dataset_version_id == version_id)
+            )
+        ).scalar_one()
+    )
     cases = await db.execute(
         select(TestCase)
         .where(TestCase.dataset_version_id == version_id)
         .order_by(TestCase.external_id.asc())
+        .offset(params.offset)
+        .limit(params.limit)
     )
-    return [_case_out(case) for case in cases.scalars().all()]
+    return paginate([_case_out(case) for case in cases.scalars().all()], total, params)

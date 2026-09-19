@@ -1,8 +1,11 @@
-import { apiFetch } from "@/lib/api/client";
+import { apiFetch, unwrapPage, type Page } from "@/lib/api/client";
 import type { EvaluationRun, Experiment, RegressionPolicy } from "@/types/api";
 
 export async function listExperiments(projectId: string): Promise<Experiment[]> {
-  return apiFetch<Experiment[]>(`/projects/${projectId}/experiments`);
+  const page = await apiFetch<Page<Experiment>>(
+    `/projects/${projectId}/experiments?page_size=200`,
+  );
+  return unwrapPage(page);
 }
 
 export async function getExperiment(experimentId: string): Promise<Experiment> {
@@ -10,7 +13,10 @@ export async function getExperiment(experimentId: string): Promise<Experiment> {
 }
 
 export async function listExperimentRuns(experimentId: string): Promise<EvaluationRun[]> {
-  return apiFetch<EvaluationRun[]>(`/experiments/${experimentId}/runs`);
+  const page = await apiFetch<Page<EvaluationRun>>(
+    `/experiments/${experimentId}/runs?page_size=200`,
+  );
+  return unwrapPage(page);
 }
 
 export async function listRegressionPolicies(

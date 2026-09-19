@@ -1,12 +1,14 @@
 from uuid import UUID
 
-from fastapi import HTTPException, status
+from fastapi import status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.auth.security import AuthContext, require_project_access
+from app.core.errors import ErrorCode, app_http_error
 from app.core.models import EvaluationRun, Experiment, RunStatus, TestCase
+from app.core.pagination import Page, PageParams, paginate
 from app.evaluations.schemas import EvaluationRunOut
 from app.evaluations.service import _run_out
 from app.experiments.schemas import ExperimentCreate, ExperimentOut
@@ -31,7 +33,11 @@ async def _get_experiment_for_auth(
     result = await db.execute(select(Experiment).where(Experiment.id == experiment_id))
     experiment = result.scalar_one_or_none()
     if experiment is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Experiment not found")
+        raise app_http_error(
+            status.HTTP_404_NOT_FOUND,
+            ErrorCode.EXPERIMENT_NOT_FOUND,
+            "Experiment not found",
+        )
     await require_project_access(experiment.project_id, auth, db)
     return experiment
 
@@ -57,14 +63,24 @@ async def list_experiments(
     db: AsyncSession,
     project_id: UUID,
     auth: AuthContext,
-) -> list[ExperimentOut]:
+    params: PageParams,
+) -> Page[ExperimentOut]:
     await require_project_access(project_id, auth, db)
+    total = int(
+        (
+            await db.execute(
+                select(func.count()).select_from(Experiment).where(Experiment.project_id == project_id)
+            )
+        ).scalar_one()
+    )
     result = await db.execute(
         select(Experiment)
         .where(Experiment.project_id == project_id)
         .order_by(Experiment.created_at.desc())
+        .offset(params.offset)
+        .limit(params.limit)
     )
-    return [_experiment_out(exp) for exp in result.scalars().all()]
+    return paginate([_experiment_out(exp) for exp in result.scalars().all()], total, params)
 
 
 async def get_experiment(
@@ -80,8 +96,18 @@ async def list_experiment_runs(
     db: AsyncSession,
     experiment_id: UUID,
     auth: AuthContext,
-) -> list[EvaluationRunOut]:
+    params: PageParams,
+) -> Page[EvaluationRunOut]:
     experiment = await _get_experiment_for_auth(db, experiment_id, auth)
+    total = int(
+        (
+            await db.execute(
+                select(func.count())
+                .select_from(EvaluationRun)
+                .where(EvaluationRun.experiment_id == experiment.id)
+            )
+        ).scalar_one()
+    )
     result = await db.execute(
         select(EvaluationRun)
         .options(
@@ -91,23 +117,29 @@ async def list_experiment_runs(
         )
         .where(EvaluationRun.experiment_id == experiment.id)
         .order_by(EvaluationRun.created_at.desc())
+        .offset(params.offset)
+        .limit(params.limit)
     )
     runs = list(result.scalars().all())
-    out: list[EvaluationRunOut] = []
-    for run in runs:
-        count = await db.execute(
-            select(func.count())
-            .select_from(TestCase)
-            .where(TestCase.dataset_version_id == run.dataset_version_id)
+    version_ids = {run.dataset_version_id for run in runs}
+    counts: dict[UUID, int] = {}
+    if version_ids:
+        count_rows = await db.execute(
+            select(TestCase.dataset_version_id, func.count())
+            .where(TestCase.dataset_version_id.in_(version_ids))
+            .group_by(TestCase.dataset_version_id)
         )
-        out.append(
-            _run_out(
-                run,
-                total_cases=int(count.scalar_one()),
-                baseline_run_id=experiment.baseline_run_id,
-            )
+        counts = {vid: int(n) for vid, n in count_rows.all()}
+
+    items = [
+        _run_out(
+            run,
+            total_cases=counts.get(run.dataset_version_id, 0),
+            baseline_run_id=experiment.baseline_run_id,
         )
-    return out
+        for run in runs
+    ]
+    return paginate(items, total, params)
 
 
 async def set_baseline(
@@ -121,19 +153,25 @@ async def set_baseline(
     result = await db.execute(select(EvaluationRun).where(EvaluationRun.id == run_id))
     run = result.scalar_one_or_none()
     if run is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Evaluation run not found")
+        raise app_http_error(
+            status.HTTP_404_NOT_FOUND,
+            ErrorCode.RUN_NOT_FOUND,
+            "Evaluation run was not found.",
+        )
     if run.experiment_id != experiment.id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Run does not belong to this experiment",
+        raise app_http_error(
+            status.HTTP_400_BAD_REQUEST,
+            ErrorCode.BAD_REQUEST,
+            "Run does not belong to this experiment",
         )
     if run.status != RunStatus.COMPLETED.value:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Only COMPLETED runs can be baselines (run status is {run.status})",
+        raise app_http_error(
+            status.HTTP_400_BAD_REQUEST,
+            ErrorCode.INVALID_RUN_STATE,
+            f"Only COMPLETED runs can be baselines (run status is {run.status})",
         )
 
-    # Persist baseline on the experiment only — do not mutate the run.
+    # Idempotent: re-assigning the same baseline is a no-op success.
     experiment.baseline_run_id = run.id
     await db.flush()
     return _experiment_out(experiment)

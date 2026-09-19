@@ -46,7 +46,7 @@ async def _fixture(client: AsyncClient) -> dict:
         f"/api/v1/dataset-versions/{version.json()['id']}/test-cases",
         headers=headers,
     )
-    case_map = {c["external_id"]: c["id"] for c in cases.json()}
+    case_map = {c["external_id"]: c["id"] for c in cases.json()["items"]}
     exp = await client.post(
         f"/api/v1/projects/{project_id}/experiments",
         headers=headers,
@@ -227,12 +227,12 @@ async def test_aggregate_pass_and_fail(client: AsyncClient) -> None:
     assert detail.json()["regression"]["status"] == "FAIL"
 
     cases = await client.get(f"/api/v1/runs/{bad_run}/results", headers=ctx["headers"])
-    assert any(c["is_regression"] for c in cases.json())
+    assert any(c["is_regression"] for c in cases.json()["items"])
 
     baseline_cases = await client.get(
         f"/api/v1/runs/{baseline_id}/results", headers=ctx["headers"]
     )
-    assert all(c["is_regression"] is False for c in baseline_cases.json())
+    assert all(c["is_regression"] is False for c in baseline_cases.json()["items"])
 
 
 @pytest.mark.asyncio

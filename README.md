@@ -110,6 +110,44 @@ Root `.env` (from `.env.example`) for Compose. Never commit secrets.
 
 For non-Docker API-only work, see `apps/api/.env.example`.
 
+## API conventions
+
+### Pagination
+
+List endpoints use `?page=1&page_size=50` (max `page_size=200`) and return:
+
+```json
+{ "items": [...], "page": 1, "page_size": 50, "total": 124 }
+```
+
+### Errors
+
+Errors use a stable shape (no stack traces):
+
+```json
+{ "error": { "code": "RUN_NOT_FOUND", "message": "Evaluation run was not found." } }
+```
+
+### Request ID
+
+Send optional `X-Request-ID`. The API echoes it on responses and includes it in structured logs. Never log passwords, API keys, or JWT secrets.
+
+### Health
+
+| Endpoint | Meaning |
+|----------|---------|
+| `GET /health` | Process liveness |
+| `GET /ready` | Database readiness (`SELECT 1`) |
+
+### CI exit codes (CLI)
+
+| Code | Meaning |
+|------|---------|
+| 0 | Pass |
+| 1 | Regression failure |
+| 2 | Usage / configuration error |
+| 3 | API / network / authentication error |
+
 ## Authentication
 
 ### Web Dashboard — JWT

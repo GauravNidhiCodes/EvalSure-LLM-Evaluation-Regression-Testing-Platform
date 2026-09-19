@@ -60,7 +60,7 @@ async def _setup(client: AsyncClient) -> dict:
         f"/api/v1/dataset-versions/{version.json()['id']}/test-cases",
         headers=headers,
     )
-    case_map = {c["external_id"]: c["id"] for c in cases.json()}
+    case_map = {c["external_id"]: c["id"] for c in cases.json()["items"]}
     return {
         "headers": headers,
         "project_id": project_id,
@@ -148,7 +148,7 @@ async def test_case_traces_scoped_and_run_includes_all(client: AsyncClient) -> N
     ctx = await _setup(client)
     run_id = await _complete_run(client, ctx)
     cases = await client.get(f"/api/v1/runs/{run_id}/results", headers=ctx["headers"])
-    case_ids = [c["id"] for c in cases.json()]
+    case_ids = [c["id"] for c in cases.json()["items"]]
     assert len(case_ids) == 2
 
     case_a = await client.get(
@@ -285,7 +285,7 @@ async def test_trace_ownership_isolation(client: AsyncClient) -> None:
     assert denied.status_code == 403
 
     cases = await client.get(f"/api/v1/runs/{run_id}/results", headers=ctx_a["headers"])
-    case_id = cases.json()[0]["id"]
+    case_id = cases.json()["items"][0]["id"]
     denied_case = await client.get(
         f"/api/v1/runs/{run_id}/cases/{case_id}/traces",
         headers=other_headers,

@@ -27,14 +27,24 @@ def _id(value: UUID | str) -> str:
     return str(value)
 
 
+def _page_items(data: Any) -> list[Any]:
+    """Normalize paginated `{items: [...]}` or legacy list responses."""
+    if isinstance(data, dict) and "items" in data:
+        items = data["items"]
+        return list(items) if isinstance(items, list) else []
+    if isinstance(data, list):
+        return data
+    return []
+
+
 class ProjectsAPI:
     def __init__(self, transport: HttpTransport) -> None:
         self._http = transport
 
     def list(self) -> list[Project]:
         """List projects owned by the authenticated user (requires JWT)."""
-        data = self._http.request("GET", "/projects", require_jwt=True)
-        return [Project.model_validate(item) for item in data]
+        data = self._http.request("GET", "/projects?page_size=200", require_jwt=True)
+        return [Project.model_validate(item) for item in _page_items(data)]
 
     def create(self, *, name: str, description: str | None = None) -> Project:
         """Create a project (requires JWT)."""
@@ -68,8 +78,8 @@ class DatasetsAPI:
         return Dataset.model_validate(data)
 
     def list(self, project_id: UUID | str) -> list[Dataset]:
-        data = self._http.request("GET", f"/projects/{_id(project_id)}/datasets")
-        return [Dataset.model_validate(item) for item in data]
+        data = self._http.request("GET", f"/projects/{_id(project_id)}/datasets?page_size=200")
+        return [Dataset.model_validate(item) for item in _page_items(data)]
 
     def get(self, dataset_id: UUID | str) -> Dataset:
         data = self._http.request("GET", f"/datasets/{_id(dataset_id)}")
@@ -95,16 +105,19 @@ class DatasetsAPI:
         return DatasetVersion.model_validate(data)
 
     def list_versions(self, dataset_id: UUID | str) -> list[DatasetVersion]:
-        data = self._http.request("GET", f"/datasets/{_id(dataset_id)}/versions")
-        return [DatasetVersion.model_validate(item) for item in data]
+        data = self._http.request("GET", f"/datasets/{_id(dataset_id)}/versions?page_size=200")
+        return [DatasetVersion.model_validate(item) for item in _page_items(data)]
 
     def get_version(self, version_id: UUID | str) -> DatasetVersion:
         data = self._http.request("GET", f"/dataset-versions/{_id(version_id)}")
         return DatasetVersion.model_validate(data)
 
     def list_test_cases(self, version_id: UUID | str) -> list[TestCase]:
-        data = self._http.request("GET", f"/dataset-versions/{_id(version_id)}/test-cases")
-        return [TestCase.model_validate(item) for item in data]
+        data = self._http.request(
+            "GET",
+            f"/dataset-versions/{_id(version_id)}/test-cases?page_size=200",
+        )
+        return [TestCase.model_validate(item) for item in _page_items(data)]
 
 
 class RunsAPI:
@@ -148,8 +161,8 @@ class RunsAPI:
         return EvaluationResultsSubmitResult.model_validate(data)
 
     def list_results(self, run_id: UUID | str) -> list[CaseResult]:
-        data = self._http.request("GET", f"/runs/{_id(run_id)}/results")
-        return [CaseResult.model_validate(item) for item in data]
+        data = self._http.request("GET", f"/runs/{_id(run_id)}/results?page_size=200")
+        return [CaseResult.model_validate(item) for item in _page_items(data)]
 
     def evaluate_regression(self, run_id: UUID | str) -> EvaluateRegressionResult:
         data = self._http.request("POST", f"/runs/{_id(run_id)}/evaluate-regression")
@@ -174,16 +187,16 @@ class ExperimentsAPI:
         return Experiment.model_validate(data)
 
     def list(self, project_id: UUID | str) -> list[Experiment]:
-        data = self._http.request("GET", f"/projects/{_id(project_id)}/experiments")
-        return [Experiment.model_validate(item) for item in data]
+        data = self._http.request("GET", f"/projects/{_id(project_id)}/experiments?page_size=200")
+        return [Experiment.model_validate(item) for item in _page_items(data)]
 
     def get(self, experiment_id: UUID | str) -> Experiment:
         data = self._http.request("GET", f"/experiments/{_id(experiment_id)}")
         return Experiment.model_validate(data)
 
     def list_runs(self, experiment_id: UUID | str) -> list[EvaluationRun]:
-        data = self._http.request("GET", f"/experiments/{_id(experiment_id)}/runs")
-        return [EvaluationRun.model_validate(item) for item in data]
+        data = self._http.request("GET", f"/experiments/{_id(experiment_id)}/runs?page_size=200")
+        return [EvaluationRun.model_validate(item) for item in _page_items(data)]
 
     def set_baseline(self, experiment_id: UUID | str, run_id: UUID | str) -> Experiment:
         data = self._http.request(

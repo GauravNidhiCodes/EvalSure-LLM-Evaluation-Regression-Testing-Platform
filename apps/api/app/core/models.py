@@ -157,6 +157,9 @@ class Experiment(Base):
     """Groups evaluation runs for a workflow and holds the active baseline run pointer."""
 
     __tablename__ = "experiments"
+    __table_args__ = (
+        UniqueConstraint("project_id", "name", name="uq_experiment_project_name"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     project_id: Mapped[uuid.UUID] = mapped_column(
@@ -200,7 +203,9 @@ class EvaluationRun(Base):
     dataset_version_id: Mapped[uuid.UUID] = mapped_column(
         Uuid, ForeignKey("dataset_versions.id", ondelete="RESTRICT"), nullable=False, index=True
     )
-    status: Mapped[str] = mapped_column(String(32), nullable=False, default=RunStatus.PENDING.value)
+    status: Mapped[str] = mapped_column(
+        String(32), nullable=False, default=RunStatus.PENDING.value, index=True
+    )
     config_snapshot: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     regression_status: Mapped[str] = mapped_column(

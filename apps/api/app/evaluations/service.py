@@ -29,12 +29,18 @@ from app.evaluations.schemas import (
     EvaluationRunCreated,
     EvaluationRunOut,
 )
+from app.evaluations.state import assert_transition, ensure_accepts_results
+from app.core.errors import ErrorCode, app_http_error
+from app.core.logging import get_logger, log_event
+from app.core.pagination import Page, PageParams, paginate
 from app.judge.errors import JudgeEvaluationError
 from app.judge.provider import judge_config_for_snapshot
 from app.metrics.registry import MetricContext, MetricRegistry, aggregate_metric_scores
 from app.regression.service import _regression_info_from_summary
 from app.traces.events import TraceEventType
 from app.traces.service import TraceService
+
+logger = get_logger("evalsure.evaluations")
 
 
 def _aggregates(total_cases: int, results: list[CaseResult]) -> tuple[int, int, int]:
@@ -348,16 +354,14 @@ async def submit_results(
     )
     run = result.scalar_one_or_none()
     if run is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Evaluation run not found")
+        raise app_http_error(
+            status.HTTP_404_NOT_FOUND,
+            ErrorCode.RUN_NOT_FOUND,
+            "Evaluation run was not found.",
+        )
     await require_project_access(run.project_id, auth, db)
 
-    if run.status in {RunStatus.COMPLETED.value, RunStatus.FAILED.value}:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Run is {run.status} and cannot accept new results",
-        )
-    if run.status not in {RunStatus.PENDING.value, RunStatus.RUNNING.value}:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Invalid run status: {run.status}")
+    ensure_accepts_results(run.status)
 
     cases_result = await db.execute(
         select(TestCase).where(TestCase.dataset_version_id == run.dataset_version_id)
@@ -366,22 +370,31 @@ async def submit_results(
     existing = {cr.test_case_id: cr for cr in run.case_results}
 
     submitted_ids = [item.test_case_id for item in body.results]
+    if len(submitted_ids) != len(set(submitted_ids)):
+        raise app_http_error(
+            status.HTTP_409_CONFLICT,
+            ErrorCode.DUPLICATE_RESULT,
+            "Duplicate test_case_id values in the same submission",
+        )
     unknown = [tid for tid in submitted_ids if tid not in cases_by_id]
     if unknown:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Unknown or foreign test_case_id values: {', '.join(str(t) for t in unknown)}",
+        raise app_http_error(
+            status.HTTP_400_BAD_REQUEST,
+            ErrorCode.BAD_REQUEST,
+            f"Unknown or foreign test_case_id values: {', '.join(str(t) for t in unknown)}",
         )
 
     duplicates = [tid for tid in submitted_ids if tid in existing]
     if duplicates:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Results already submitted for test_case_id: {', '.join(str(t) for t in duplicates)}",
+        raise app_http_error(
+            status.HTTP_409_CONFLICT,
+            ErrorCode.DUPLICATE_RESULT,
+            f"Results already submitted for test_case_id: {', '.join(str(t) for t in duplicates)}",
         )
 
     just_started = False
     if run.status == RunStatus.PENDING.value:
+        assert_transition(run.status, RunStatus.RUNNING.value)
         run.status = RunStatus.RUNNING.value
         run.started_at = datetime.now(timezone.utc)
         just_started = True
@@ -459,6 +472,7 @@ async def submit_results(
         _completed, _failed, pending = _aggregates(total, all_results)
 
         if pending == 0:
+            assert_transition(run.status, RunStatus.COMPLETED.value)
             run.status = RunStatus.COMPLETED.value
             run.finished_at = datetime.now(timezone.utc)
             run.error_message = None
@@ -472,26 +486,37 @@ async def submit_results(
                     "failed_cases": _failed,
                 },
             )
+            log_event(
+                logger,
+                "run_completed",
+                run_id=str(run.id),
+                project_id=str(run.project_id),
+                total_cases=total,
+            )
 
         await db.flush()
         await db.refresh(run, attribute_names=["dataset_version", "experiment"])
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001
-        run.status = RunStatus.FAILED.value
-        run.finished_at = datetime.now(timezone.utc)
-        run.error_message = str(exc)
-        await TraceService.record_error_event(
-            db,
-            run_id=run.id,
-            event_type=TraceEventType.RUN_FAILED,
-            message=str(exc),
-            error_type=type(exc).__name__,
-        )
-        await db.flush()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to persist results; run marked FAILED",
+        if run.status not in {RunStatus.COMPLETED.value, RunStatus.FAILED.value}:
+            assert_transition(run.status, RunStatus.FAILED.value)
+            run.status = RunStatus.FAILED.value
+            run.finished_at = datetime.now(timezone.utc)
+            run.error_message = "Failed to persist results"
+            await TraceService.record_error_event(
+                db,
+                run_id=run.id,
+                event_type=TraceEventType.RUN_FAILED,
+                message="Failed to persist results",
+                error_type=type(exc).__name__,
+            )
+            await db.flush()
+        log_event(logger, "run_failed", run_id=str(run.id), error_type=type(exc).__name__)
+        raise app_http_error(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            ErrorCode.INTERNAL_ERROR,
+            "Failed to persist results; run marked FAILED",
         ) from exc
 
     out = _run_out(run, total_cases=total, results=all_results)
@@ -502,18 +527,32 @@ async def list_case_results(
     db: AsyncSession,
     run_id: UUID,
     auth: AuthContext,
-) -> list[CaseResultOut]:
+    params: PageParams,
+) -> Page[CaseResultOut]:
     result = await db.execute(select(EvaluationRun).where(EvaluationRun.id == run_id))
     run = result.scalar_one_or_none()
     if run is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Evaluation run not found")
+        raise app_http_error(
+            status.HTTP_404_NOT_FOUND,
+            ErrorCode.RUN_NOT_FOUND,
+            "Evaluation run was not found.",
+        )
     await require_project_access(run.project_id, auth, db)
 
+    total = int(
+        (
+            await db.execute(
+                select(func.count()).select_from(CaseResult).where(CaseResult.run_id == run_id)
+            )
+        ).scalar_one()
+    )
     rows = await db.execute(
         select(CaseResult)
         .options(selectinload(CaseResult.test_case))
         .where(CaseResult.run_id == run_id)
         .order_by(CaseResult.created_at.asc())
+        .offset(params.offset)
+        .limit(params.limit)
     )
     out: list[CaseResultOut] = []
     for cr in rows.scalars().all():
@@ -531,4 +570,4 @@ async def list_case_results(
                 created_at=cr.created_at,
             )
         )
-    return out
+    return paginate(out, total, params)

@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.security import AuthContext, get_auth_context
 from app.core.database import get_db
+from app.core.pagination import Page, page_params
 from app.evaluations import service as evaluations_service
 from app.evaluations.schemas import (
     CaseResultOut,
@@ -51,10 +52,11 @@ async def submit_evaluation_results(
     return await evaluations_service.submit_results(db, run_id, auth, body)
 
 
-@router.get("/runs/{run_id}/results", response_model=list[CaseResultOut])
+@router.get("/runs/{run_id}/results", response_model=Page[CaseResultOut])
 async def list_evaluation_results(
     run_id: UUID,
     auth: AuthContext = Depends(get_auth_context),
     db: AsyncSession = Depends(get_db),
-) -> list[CaseResultOut]:
-    return await evaluations_service.list_case_results(db, run_id, auth)
+    params=Depends(page_params),
+) -> Page[CaseResultOut]:
+    return await evaluations_service.list_case_results(db, run_id, auth, params)

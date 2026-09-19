@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.security import AuthContext, get_auth_context
 from app.core.database import get_db
+from app.core.pagination import page_params
 from app.traces.schemas import CaseTracesOut, RunTracesOut
 from app.traces.service import TraceService
 
@@ -16,8 +17,9 @@ async def get_run_traces(
     run_id: UUID,
     auth: AuthContext = Depends(get_auth_context),
     db: AsyncSession = Depends(get_db),
+    params=Depends(page_params),
 ) -> RunTracesOut:
-    return await TraceService.get_run_events(db, run_id, auth)
+    return await TraceService.get_run_events(db, run_id, auth, params)
 
 
 @router.get(

@@ -54,7 +54,7 @@ async def _setup(client: AsyncClient) -> dict:
         headers=headers,
     )
     assert cases.status_code == 200
-    case_ids = {c["external_id"]: c["id"] for c in cases.json()}
+    case_ids = {c["external_id"]: c["id"] for c in cases.json()["items"]}
 
     return {
         "headers": headers,
@@ -166,7 +166,7 @@ async def test_submit_results_and_complete(client: AsyncClient) -> None:
 
     listed = await client.get(f"/api/v1/runs/{run_id}/results", headers=ctx["headers"])
     assert listed.status_code == 200
-    assert len(listed.json()) == 2
+    assert len(listed.json()["items"]) == 2
 
 
 @pytest.mark.asyncio
@@ -228,7 +228,7 @@ async def test_reject_test_case_from_another_dataset(client: AsyncClient) -> Non
         f"/api/v1/dataset-versions/{other_ver.json()['id']}/test-cases",
         headers=ctx["headers"],
     )
-    foreign_id = other_cases.json()[0]["id"]
+    foreign_id = other_cases.json()["items"][0]["id"]
 
     created = await client.post(
         f"/api/v1/projects/{ctx['project_id']}/runs",
