@@ -3,6 +3,7 @@
 from app.judge.errors import JudgeEvaluationError
 from app.judge.provider import (
     FakeLLMJudgeProvider,
+    JudgeCompletion,
     LLMJudgeProvider,
     OpenAICompatibleJudgeProvider,
     clear_judge_provider_override,
@@ -12,6 +13,7 @@ from app.judge.provider import (
 
 __all__ = [
     "JudgeEvaluationError",
+    "JudgeCompletion",
     "LLMJudgeProvider",
     "OpenAICompatibleJudgeProvider",
     "FakeLLMJudgeProvider",

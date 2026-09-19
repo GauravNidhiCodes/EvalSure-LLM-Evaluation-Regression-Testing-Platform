@@ -1,4 +1,6 @@
 from datetime import datetime, timezone
+from time import perf_counter
+from typing import Any
 from uuid import UUID
 
 from fastapi import HTTPException, status
@@ -7,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.auth.security import AuthContext, require_project_access
+from app.core.config import get_settings
 from app.core.models import (
     CaseResult,
     CaseResultStatus,
@@ -30,6 +33,8 @@ from app.judge.errors import JudgeEvaluationError
 from app.judge.provider import judge_config_for_snapshot
 from app.metrics.registry import MetricContext, MetricRegistry, aggregate_metric_scores
 from app.regression.service import _regression_info_from_summary
+from app.traces.events import TraceEventType
+from app.traces.service import TraceService
 
 
 def _aggregates(total_cases: int, results: list[CaseResult]) -> tuple[int, int, int]:
@@ -44,18 +49,23 @@ def _score_case_metrics(
     actual_output: dict | None,
     test_case: TestCase,
     metric_names: list[str],
-) -> tuple[dict, str | None]:
-    """Score configured metrics. Judge failures mark the case failed; other metrics may still score.
+) -> tuple[dict, str | None, list[dict[str, Any]], list[dict[str, Any]]]:
+    """Score configured metrics.
+
+    Returns:
+        scores, judge_error, model_call payloads, metric_evaluation payloads
 
     Failure handling: a failed llm_judge evaluation fails the CaseResult (with error_message)
     but does not fail the overall EvaluationRun — the run still becomes COMPLETED when all
     cases have results.
     """
     if not metric_names or actual_output is None:
-        return {}, None
+        return {}, None, [], []
     scores: dict = {}
     judge_error: str | None = None
+    metric_events: list[dict[str, Any]] = []
     context = MetricContext(input=test_case.input)
+    settings = get_settings()
     for name in metric_names:
         try:
             partial = MetricRegistry.score_case(
@@ -65,10 +75,30 @@ def _score_case_metrics(
                 context=context,
             )
             scores.update(partial)
+            entry = partial[name]
+            event_data: dict[str, Any] = {
+                "metric": name,
+                "score": entry.get("score"),
+                "passed": entry.get("passed"),
+            }
+            if entry.get("reason") is not None:
+                event_data["reason"] = entry["reason"]
+            if name == "llm_judge":
+                if context.model_calls:
+                    last_call = context.model_calls[-1]
+                    event_data["provider"] = last_call.get("provider")
+                    if last_call.get("model") is not None:
+                        event_data["model"] = last_call.get("model")
+                else:
+                    event_data["provider"] = (
+                        settings.judge_provider or "openai_compatible"
+                    ).strip().lower()
+                    event_data["model"] = settings.judge_model
+            metric_events.append(event_data)
         except JudgeEvaluationError as exc:
             judge_error = f"llm_judge: {exc}"
             break
-    return scores, judge_error
+    return scores, judge_error, list(context.model_calls), metric_events
 
 
 def _run_out(
@@ -239,6 +269,67 @@ async def get_run(
     return _run_out(run, total_cases=total)
 
 
+async def _record_case_traces(
+    db: AsyncSession,
+    *,
+    run: EvaluationRun,
+    case_result: CaseResult,
+    test_case_id: UUID,
+    model_calls: list[dict[str, Any]],
+    metric_events: list[dict[str, Any]],
+    case_status: str,
+    error_message: str | None,
+    latency_ms: float | None,
+) -> None:
+    await TraceService.record_event(
+        db,
+        run_id=run.id,
+        case_result_id=case_result.id,
+        event_type=TraceEventType.CASE_STARTED,
+        data={"test_case_id": str(test_case_id)},
+    )
+    for call in model_calls:
+        await TraceService.record_event(
+            db,
+            run_id=run.id,
+            case_result_id=case_result.id,
+            event_type=TraceEventType.MODEL_CALL,
+            data={**call, "test_case_id": str(test_case_id)},
+        )
+    for metric_data in metric_events:
+        await TraceService.record_event(
+            db,
+            run_id=run.id,
+            case_result_id=case_result.id,
+            event_type=TraceEventType.METRIC_EVALUATION,
+            data={**metric_data, "test_case_id": str(test_case_id)},
+        )
+    if case_status == CaseResultStatus.FAILED.value:
+        await TraceService.record_error_event(
+            db,
+            run_id=run.id,
+            case_result_id=case_result.id,
+            event_type=TraceEventType.CASE_FAILED,
+            message=error_message,
+            error_type="CaseEvaluationError",
+            extra={
+                "test_case_id": str(test_case_id),
+                **({"latency_ms": latency_ms} if latency_ms is not None else {}),
+            },
+        )
+    else:
+        completed_data: dict[str, Any] = {"test_case_id": str(test_case_id)}
+        if latency_ms is not None:
+            completed_data["latency_ms"] = latency_ms
+        await TraceService.record_event(
+            db,
+            run_id=run.id,
+            case_result_id=case_result.id,
+            event_type=TraceEventType.CASE_COMPLETED,
+            data=completed_data,
+        )
+
+
 async def submit_results(
     db: AsyncSession,
     run_id: UUID,
@@ -289,9 +380,11 @@ async def submit_results(
             detail=f"Results already submitted for test_case_id: {', '.join(str(t) for t in duplicates)}",
         )
 
+    just_started = False
     if run.status == RunStatus.PENDING.value:
         run.status = RunStatus.RUNNING.value
         run.started_at = datetime.now(timezone.utc)
+        just_started = True
 
     metric_names = [
         name
@@ -300,14 +393,29 @@ async def submit_results(
     ]
 
     try:
+        if just_started:
+            await TraceService.record_event(
+                db,
+                run_id=run.id,
+                event_type=TraceEventType.RUN_STARTED,
+                data={
+                    "dataset_version_id": str(run.dataset_version_id),
+                    "metrics": metric_names,
+                },
+            )
+
         for item in body.results:
             test_case = cases_by_id[item.test_case_id]
             metric_scores: dict = {}
+            model_calls: list[dict[str, Any]] = []
+            metric_events: list[dict[str, Any]] = []
             error_message = item.error_message
+            case_started_at = perf_counter()
+
             if item.error_message:
                 case_status = CaseResultStatus.FAILED.value
             else:
-                metric_scores, judge_error = _score_case_metrics(
+                metric_scores, judge_error, model_calls, metric_events = _score_case_metrics(
                     actual_output=item.actual_output,
                     test_case=test_case,
                     metric_names=metric_names,
@@ -318,16 +426,31 @@ async def submit_results(
                     error_message = judge_error
                 else:
                     case_status = CaseResultStatus.COMPLETED.value
-            db.add(
-                CaseResult(
-                    run_id=run.id,
-                    test_case_id=item.test_case_id,
-                    actual_output=item.actual_output,
-                    status=case_status,
-                    metric_scores=metric_scores,
-                    error_message=error_message,
-                )
+
+            latency_ms = (perf_counter() - case_started_at) * 1000.0
+            case_result = CaseResult(
+                run_id=run.id,
+                test_case_id=item.test_case_id,
+                actual_output=item.actual_output,
+                status=case_status,
+                metric_scores=metric_scores,
+                error_message=error_message,
             )
+            db.add(case_result)
+            await db.flush()
+
+            await _record_case_traces(
+                db,
+                run=run,
+                case_result=case_result,
+                test_case_id=item.test_case_id,
+                model_calls=model_calls,
+                metric_events=metric_events,
+                case_status=case_status,
+                error_message=error_message,
+                latency_ms=latency_ms,
+            )
+
         await db.flush()
 
         refreshed = await db.execute(select(CaseResult).where(CaseResult.run_id == run.id))
@@ -339,6 +462,16 @@ async def submit_results(
             run.status = RunStatus.COMPLETED.value
             run.finished_at = datetime.now(timezone.utc)
             run.error_message = None
+            await TraceService.record_event(
+                db,
+                run_id=run.id,
+                event_type=TraceEventType.RUN_COMPLETED,
+                data={
+                    "total_cases": total,
+                    "completed_cases": _completed,
+                    "failed_cases": _failed,
+                },
+            )
 
         await db.flush()
         await db.refresh(run, attribute_names=["dataset_version", "experiment"])
@@ -348,6 +481,13 @@ async def submit_results(
         run.status = RunStatus.FAILED.value
         run.finished_at = datetime.now(timezone.utc)
         run.error_message = str(exc)
+        await TraceService.record_error_event(
+            db,
+            run_id=run.id,
+            event_type=TraceEventType.RUN_FAILED,
+            message=str(exc),
+            error_type=type(exc).__name__,
+        )
         await db.flush()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

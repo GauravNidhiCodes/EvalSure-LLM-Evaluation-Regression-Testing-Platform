@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 import re
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from difflib import SequenceMatcher
 from typing import Any
 
@@ -15,6 +15,8 @@ class MetricContext:
     """Optional per-case context for metrics that need more than expected/actual."""
 
     input: dict[str, Any] | None = None
+    # Side-channel for provider model_call metadata (no secrets). Populated by llm_judge.
+    model_calls: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass

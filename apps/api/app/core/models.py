@@ -222,6 +222,9 @@ class EvaluationRun(Base):
     case_results: Mapped[list["CaseResult"]] = relationship(
         back_populates="run", cascade="all, delete-orphan"
     )
+    trace_events: Mapped[list["TraceEvent"]] = relationship(
+        back_populates="run", cascade="all, delete-orphan"
+    )
 
 
 class CaseResult(Base):
@@ -248,6 +251,32 @@ class CaseResult(Base):
 
     run: Mapped["EvaluationRun"] = relationship(back_populates="case_results")
     test_case: Mapped["TestCase"] = relationship(back_populates="case_results")
+    trace_events: Mapped[list["TraceEvent"]] = relationship(back_populates="case_result")
+
+
+class TraceEvent(Base):
+    """Append-only evaluation observability event (structured JSON, not OpenTelemetry)."""
+
+    __tablename__ = "trace_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    run_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("evaluation_runs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    case_result_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("case_results.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    event_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    timestamp: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
+    )
+    data: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    run: Mapped["EvaluationRun"] = relationship(back_populates="trace_events")
+    case_result: Mapped["CaseResult | None"] = relationship(back_populates="trace_events")
 
 
 class RegressionPolicy(Base):
