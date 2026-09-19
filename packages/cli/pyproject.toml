@@ -7,6 +7,7 @@ dependencies = [
     "evalsure-sdk",
     "typer>=0.15.0",
     "rich>=13.0.0",
+    "PyYAML>=6.0",
 ]
 
 [project.optional-dependencies]

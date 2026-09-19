@@ -1,0 +1,11 @@
+# Repository-level EVALSURE CI configuration.
+# NEVER put API keys or secrets in this file.
+# Auth: set EVALSURE_API_URL + EVALSURE_API_KEY as GitHub Actions secrets.
+
+project_id: "00000000-0000-0000-0000-000000000001"
+experiment_id: "00000000-0000-0000-0000-000000000002"
+dataset_version_id: "00000000-0000-0000-0000-000000000003"
+
+metrics:
+  - exact_match
+  - string_similarity

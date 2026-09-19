@@ -1,0 +1,16 @@
+{
+  "results": [
+    {
+      "test_case_id": "00000000-0000-0000-0000-000000000010",
+      "actual_output": {
+        "answer": "Refunds are available within 30 days."
+      }
+    },
+    {
+      "test_case_id": "00000000-0000-0000-0000-000000000011",
+      "actual_output": {
+        "answer": "Paris is the capital of France."
+      }
+    }
+  ]
+}

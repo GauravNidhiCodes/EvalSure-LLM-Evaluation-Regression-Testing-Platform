@@ -1,0 +1,55 @@
+name: EVALSURE
+
+# Quality gate for LLM evaluation + regression checks.
+# Configure repository secrets (never commit keys):
+#   EVALSURE_API_URL  — e.g. https://api.example.com
+#   EVALSURE_API_KEY  — project API key (evs_...)
+
+"on":
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  evalsure:
+    name: EVALSURE regression gate
+    runs-on: ubuntu-latest
+    # Skip when the repo has not yet added evalsure.yml (template-friendly).
+    if: hashFiles('evalsure.yml') != ''
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install EVALSURE SDK and CLI
+        run: |
+          python -m pip install --upgrade pip
+          pip install ./packages/sdk ./packages/cli
+
+      # Replace this step with your app's test / evaluation command that
+      # writes evalsure-results.json (LLM outputs for each test case).
+      - name: Generate evaluation outputs
+        run: |
+          if [ ! -f evalsure-results.json ]; then
+            echo "evalsure-results.json not found."
+            echo "Your CI must produce this file before the EVALSURE gate."
+            echo "See examples/ci/evalsure-results.json and README (GitHub Actions CI)."
+            exit 1
+          fi
+
+      - name: Run EVALSURE CI gate
+        env:
+          EVALSURE_API_URL: ${{ secrets.EVALSURE_API_URL }}
+          EVALSURE_API_KEY: ${{ secrets.EVALSURE_API_KEY }}
+          EVALSURE_PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          evalsure ci run \
+            --config evalsure.yml \
+            --results evalsure-results.json

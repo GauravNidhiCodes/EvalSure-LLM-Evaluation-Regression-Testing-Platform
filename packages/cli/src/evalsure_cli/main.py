@@ -30,12 +30,14 @@ datasets_app = typer.Typer(help="Dataset commands", no_args_is_help=True)
 runs_app = typer.Typer(help="Evaluation run commands", no_args_is_help=True)
 experiments_app = typer.Typer(help="Experiment commands", no_args_is_help=True)
 traces_app = typer.Typer(help="Trace commands", no_args_is_help=True)
+ci_app = typer.Typer(help="CI / GitHub Actions quality gate", no_args_is_help=True)
 
 app.add_typer(projects_app, name="projects")
 app.add_typer(datasets_app, name="datasets")
 app.add_typer(runs_app, name="runs")
 app.add_typer(experiments_app, name="experiments")
 app.add_typer(traces_app, name="traces")
+app.add_typer(ci_app, name="ci")
 
 
 @app.callback()
@@ -559,6 +561,42 @@ def traces_case(
         ["event_type", "timestamp"],
         [[e.event_type, e.timestamp] for e in traces.events],
     )
+
+
+# ----- CI -----
+
+
+@ci_app.command("run")
+def ci_run(
+    ctx: typer.Context,
+    config: Path = typer.Option(
+        Path("evalsure.yml"),
+        "--config",
+        "-c",
+        help="Path to evalsure.yml (no secrets)",
+    ),
+    results: Path = typer.Option(
+        Path("evalsure-results.json"),
+        "--results",
+        "-r",
+        help="Path to evaluation results JSON",
+    ),
+) -> None:
+    """CI quality gate: submit results, evaluate regression, exit with status code.
+
+    Exit codes:
+      0 — regression PASS (or NOT_EVALUATED)
+      1 — regression FAIL
+      2 — configuration / file error
+      3 — API / network / auth error
+
+    Never modifies the experiment baseline.
+    """
+    from evalsure_cli.ci import run_ci
+
+    client = _from_ctx(ctx)
+    outcome = run_ci(client, config_path=config, results_path=results)
+    raise typer.Exit(code=outcome.exit_code)
 
 
 if __name__ == "__main__":
