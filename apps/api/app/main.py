@@ -19,8 +19,8 @@ from app.projects.router import router as projects_router
 from app.regression.router import router as regression_router
 from app.traces.router import router as traces_router
 
-# Prefer Starlette's non-deprecated alias when available.
-_UNPROCESSABLE = getattr(status, "HTTP_422_UNPROCESSABLE_CONTENT", status.HTTP_422_UNPROCESSABLE_ENTITY)
+# Prefer Starlette's non-deprecated alias; fall back to literal 422 (avoid deprecated attr).
+_UNPROCESSABLE = getattr(status, "HTTP_422_UNPROCESSABLE_CONTENT", 422)
 
 settings = get_settings()
 logger = get_logger("evalsure.api")

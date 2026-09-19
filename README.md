@@ -141,6 +141,18 @@ Then open http://localhost:3000/register, create an account, and create a projec
 **Full step-by-step (API + dataset + run + regression):** [docs/quickstart.md](docs/quickstart.md)  
 **Deterministic sample data:** [examples/basic/](examples/basic/) · **Full regression demo:** [examples/regression_demo/](examples/regression_demo/)
 
+### Run the regression demo
+
+With the API running (and `packages/sdk` installed):
+
+```bash
+export EVALSURE_API_URL=http://localhost:8000
+python examples/regression_demo/run_demo.py
+echo $?   # expect 1 — RegressionService detected intentional quality drop
+```
+
+This creates an isolated project, baseline vs degraded run, policy evaluation, traces, and prints dashboard URLs. No paid LLM required. Details: [examples/regression_demo/README.md](examples/regression_demo/README.md).
+
 ### Docker commands
 
 ```bash

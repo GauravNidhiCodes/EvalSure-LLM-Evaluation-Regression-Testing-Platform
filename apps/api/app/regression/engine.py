@@ -125,11 +125,12 @@ class RegressionService:
         if current_run.dataset_version_id != baseline_run.dataset_version_id:
             notes.append(
                 "Baseline and current runs use different dataset versions; "
-                "case comparison uses intersecting test_case_id values only"
+                "aggregates and case comparison use intersecting test_case_id values only"
             )
 
         baseline_by_case = {cr.test_case_id: cr for cr in baseline_results}
         current_by_case = {cr.test_case_id: cr for cr in current_results}
+        shared_case_ids = set(baseline_by_case) & set(current_by_case)
 
         aggregate: dict[str, AggregateMetricResult] = {}
         regressed_cases: list[RegressedCase] = []
@@ -143,16 +144,16 @@ class RegressionService:
                 notes.append(f"Policy references unavailable metric '{metric}'; skipped")
                 continue
 
-            baseline_scores = [
-                s
-                for cid, scores in baseline_scores_by_case.items()
-                if (s := _score_value(scores, metric)) is not None
-            ]
-            current_scores = [
-                s
-                for cid, scores in current_scores_by_case.items()
-                if (s := _score_value(scores, metric)) is not None
-            ]
+            # Fair comparison: only cases present on both runs contribute to aggregates.
+            # Missing/disjoint cases are tracked as incomparable, not as silent zeros.
+            baseline_scores: list[float] = []
+            current_scores: list[float] = []
+            for tid in shared_case_ids:
+                b_score = _score_value(baseline_scores_by_case.get(tid), metric)
+                c_score = _score_value(current_scores_by_case.get(tid), metric)
+                if b_score is not None and c_score is not None:
+                    baseline_scores.append(b_score)
+                    current_scores.append(c_score)
             baseline_avg = _average(baseline_scores)
             current_avg = _average(current_scores)
 
@@ -168,7 +169,10 @@ class RegressionService:
                         f"{policy.max_allowed_drop}"
                     )
             elif baseline_avg is None or current_avg is None:
-                notes.append(f"Metric '{metric}' missing aggregate scores on baseline or current")
+                notes.append(
+                    f"Metric '{metric}' has no comparable shared cases with scores "
+                    "on baseline and current; aggregate check skipped"
+                )
 
             if (
                 policy.min_aggregate_score is not None
@@ -182,7 +186,6 @@ class RegressionService:
                 )
 
             metric_case_regressions = 0
-            shared_ids = set(baseline_by_case) & set(current_by_case)
             only_baseline = set(baseline_by_case) - set(current_by_case)
             only_current = set(current_by_case) - set(baseline_by_case)
             for tid in only_baseline:
@@ -194,7 +197,7 @@ class RegressionService:
                     {"test_case_id": str(tid), "reason": "missing_in_baseline", "metric": metric}
                 )
 
-            for tid in shared_ids:
+            for tid in shared_case_ids:
                 b_case = baseline_by_case[tid]
                 c_case = current_by_case[tid]
                 b_score = _score_value(baseline_scores_by_case.get(tid), metric)

@@ -520,6 +520,66 @@ def test_missing_cases_are_incomparable_not_crash() -> None:
     reasons = {item["reason"] for item in outcome.incomparable_cases}
     assert "missing_in_current" in reasons
     assert "missing_in_baseline" in reasons
+    # Aggregate uses shared cases only — disjoint extras must not skew the average.
+    assert outcome.aggregate["string_similarity"].baseline == pytest.approx(1.0)
+    assert outcome.aggregate["string_similarity"].current == pytest.approx(1.0)
+    assert outcome.aggregate["string_similarity"].delta == pytest.approx(0.0)
+
+
+def test_disjoint_case_ids_skip_aggregate_no_false_fail() -> None:
+    """Completely non-overlapping cases must not invent an aggregate regression."""
+    engine = RegressionService()
+    baseline_run = EvaluationRun(
+        id=uuid4(), project_id=uuid4(), dataset_version_id=uuid4(), status=RunStatus.COMPLETED.value
+    )
+    current_run = EvaluationRun(
+        id=uuid4(),
+        project_id=baseline_run.project_id,
+        dataset_version_id=uuid4(),  # different version
+        status=RunStatus.COMPLETED.value,
+    )
+    policy = RegressionPolicy(
+        id=uuid4(),
+        experiment_id=uuid4(),
+        metric_name="string_similarity",
+        max_allowed_drop=0.01,
+        min_aggregate_score=0.99,
+        max_regressed_cases=0,
+    )
+    b_id, c_id = uuid4(), uuid4()
+    baseline_results = [
+        CaseResult(
+            id=uuid4(),
+            run_id=baseline_run.id,
+            test_case_id=b_id,
+            status=CaseResultStatus.COMPLETED.value,
+            metric_scores={"string_similarity": {"score": 1.0, "passed": True}},
+        )
+    ]
+    current_results = [
+        CaseResult(
+            id=uuid4(),
+            run_id=current_run.id,
+            test_case_id=c_id,
+            status=CaseResultStatus.COMPLETED.value,
+            metric_scores={"string_similarity": {"score": 0.0, "passed": False}},
+        )
+    ]
+    outcome = engine.evaluate(
+        current_run=current_run,
+        baseline_run=baseline_run,
+        current_results=current_results,
+        baseline_results=baseline_results,
+        policies=[policy],
+        current_scores_by_case={c_id: current_results[0].metric_scores},
+        baseline_scores_by_case={b_id: baseline_results[0].metric_scores},
+    )
+    assert outcome.status.value == "PASS"
+    assert outcome.aggregate["string_similarity"].violated is False
+    assert outcome.aggregate["string_similarity"].baseline is None
+    assert outcome.aggregate["string_similarity"].current is None
+    assert outcome.regressed_case_count == 0
+    assert any("no comparable shared cases" in n for n in outcome.notes)
 
 
 @pytest.mark.asyncio

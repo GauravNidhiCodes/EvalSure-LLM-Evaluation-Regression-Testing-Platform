@@ -100,7 +100,7 @@ Secrets are stripped from `config_snapshot` and never written to traces.
 1. Experiment holds `baseline_run_id` (pointer only — baseline run is not mutated).  
 2. Policies define `max_allowed_drop`, optional `min_aggregate_score`, `max_regressed_cases`.  
 3. `POST /runs/{id}/evaluate-regression` compares current vs baseline aggregates and cases.  
-4. Missing / incomparable cases are reported — not silently treated as zero.  
+4. Aggregates and case checks use **shared `test_case_id` values only**; missing / disjoint cases are `incomparable`, not treated as zeros.  
 5. Outcomes: `PASS`, `FAIL`, or `NOT_EVALUATED` (no baseline / no policies / not linked).
 
 ## Traces
