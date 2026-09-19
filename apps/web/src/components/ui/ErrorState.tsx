@@ -17,8 +17,7 @@ export function ErrorState({
       detail = error.message;
     } else if (error.status === 401 || error.status === 403) {
       title = "Unauthorized";
-      detail =
-        "Set EVALSURE_ACCESS_TOKEN in apps/web/.env.local (server-only JWT from /api/v1/auth/login).";
+      detail = "Sign in at /login, or configure a server-only JWT session.";
     } else if (error.status === 404) {
       title = "Not found";
       detail = error.message;

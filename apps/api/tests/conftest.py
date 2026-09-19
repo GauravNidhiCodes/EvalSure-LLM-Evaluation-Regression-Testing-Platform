@@ -2,6 +2,8 @@ import os
 
 # Required before importing the app (Settings.jwt_secret has no insecure default).
 os.environ.setdefault("JWT_SECRET", "test-only-jwt-secret-key")
+os.environ.setdefault("EVALSURE_JWT_SECRET", "test-only-jwt-secret-key")
+os.environ.setdefault("EVALSURE_CORS_ORIGINS", "http://test")
 
 import pytest
 import pytest_asyncio

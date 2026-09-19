@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test": "node --experimental-strip-types --test src/lib/compare.test.ts"
+    "test": "node --experimental-strip-types --test src/lib/compare.test.ts src/lib/auth/constants.test.ts"
   },
   "dependencies": {
     "react": "^19.0.0",

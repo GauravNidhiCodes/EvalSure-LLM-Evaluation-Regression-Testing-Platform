@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
 
 const NAV = [
@@ -21,7 +21,20 @@ function isActive(pathname: string, href: string): boolean {
 
 export function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
   const [open, setOpen] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
+
+  async function onLogout() {
+    setLoggingOut(true);
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+      router.replace("/login");
+      router.refresh();
+    } finally {
+      setLoggingOut(false);
+    }
+  }
 
   return (
     <>
@@ -70,6 +83,16 @@ export function Sidebar() {
               );
             })}
           </nav>
+          <div className="border-t border-border p-3">
+            <button
+              type="button"
+              onClick={onLogout}
+              disabled={loggingOut}
+              className="w-full rounded border border-border px-3 py-2 text-left text-sm text-muted hover:bg-elevated hover:text-ink disabled:opacity-60"
+            >
+              {loggingOut ? "Signing out…" : "Sign out"}
+            </button>
+          </div>
         </div>
       </aside>
       {open ? (

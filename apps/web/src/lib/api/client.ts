@@ -1,4 +1,5 @@
-import { getAccessToken, getApiBaseUrl, getApiPrefix } from "@/lib/config";
+import { getAccessToken } from "@/lib/auth/session";
+import { getApiBaseUrl, getApiPrefix } from "@/lib/config";
 
 export class ApiError extends Error {
   readonly status: number;
@@ -21,12 +22,12 @@ export type ApiFetchOptions = {
   next?: NextFetchRequestConfig;
 };
 
-function buildHeaders(token?: string | null): HeadersInit {
+async function buildHeaders(token?: string | null): Promise<HeadersInit> {
   const headers: Record<string, string> = {
     Accept: "application/json",
     "Content-Type": "application/json",
   };
-  const auth = token === null ? undefined : token ?? getAccessToken();
+  const auth = token === null ? undefined : token ?? (await getAccessToken());
   if (auth) {
     headers.Authorization = `Bearer ${auth}`;
   }
@@ -43,7 +44,7 @@ export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): 
   try {
     response = await fetch(url, {
       method: options.method ?? "GET",
-      headers: buildHeaders(options.token),
+      headers: await buildHeaders(options.token),
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
       cache: options.cache ?? "no-store",
       next: options.next,

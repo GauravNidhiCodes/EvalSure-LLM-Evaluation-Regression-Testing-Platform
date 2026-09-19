@@ -33,17 +33,26 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 def create_access_token(user_id: UUID) -> str:
     expire = datetime.now(timezone.utc) + timedelta(minutes=settings.jwt_expire_minutes)
-    payload = {"sub": str(user_id), "exp": expire}
+    payload = {
+        "sub": str(user_id),
+        "exp": expire,
+        "typ": "access",
+    }
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 
 def decode_access_token(token: str) -> UUID:
     try:
         payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
+        token_typ = payload.get("typ")
+        if token_typ is not None and token_typ != "access":
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
         sub = payload.get("sub")
         if not sub:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
         return UUID(sub)
+    except HTTPException:
+        raise
     except (JWTError, ValueError) as exc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token") from exc
 
@@ -87,21 +96,31 @@ async def get_current_user(
     return user
 
 
+async def resolve_api_key(db: AsyncSession, raw_key: str) -> ApiKey:
+    """Authenticate a project API key. Revoked / unknown / malformed keys fail."""
+    if not raw_key or not raw_key.startswith("evs_") or len(raw_key) < 16:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid API key")
+
+    prefix = raw_key[:12]
+    expected_hash = hash_api_key(raw_key)
+    result = await db.execute(
+        select(ApiKey)
+        .options(selectinload(ApiKey.project).selectinload(Project.owner))
+        .where(ApiKey.key_prefix == prefix, ApiKey.revoked_at.is_(None))
+    )
+    for candidate in result.scalars().all():
+        if secrets.compare_digest(candidate.key_hash, expected_hash):
+            return candidate
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid API key")
+
+
 async def get_auth_context(
     credentials: Annotated[HTTPAuthorizationCredentials | None, Security(bearer_scheme)],
     api_key: Annotated[str | None, Security(api_key_header)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> AuthContext:
     if api_key:
-        key_hash = hash_api_key(api_key)
-        result = await db.execute(
-            select(ApiKey)
-            .options(selectinload(ApiKey.project).selectinload(Project.owner))
-            .where(ApiKey.key_hash == key_hash, ApiKey.revoked_at.is_(None))
-        )
-        record = result.scalar_one_or_none()
-        if record is None:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid API key")
+        record = await resolve_api_key(db, api_key)
         return AuthContext(user=record.project.owner, project=record.project, via="api_key")
 
     if credentials is None:

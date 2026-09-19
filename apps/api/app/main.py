@@ -15,6 +15,11 @@ from app.traces.router import router as traces_router
 settings = get_settings()
 
 
+def _cors_origins() -> list[str]:
+    origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
+    return origins or ["http://localhost:3000"]
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     yield
@@ -29,10 +34,10 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins(),
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-API-Key", "Accept"],
 )
 
 app.include_router(auth_router, prefix=settings.api_prefix)

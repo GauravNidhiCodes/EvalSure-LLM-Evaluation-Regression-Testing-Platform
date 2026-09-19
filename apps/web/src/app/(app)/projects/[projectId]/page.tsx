@@ -38,6 +38,7 @@ export default async function ProjectDetailPage({
           <NavChip href={`/projects/${project.id}/datasets`} label="Datasets" />
           <NavChip href={`/projects/${project.id}/experiments`} label="Experiments" />
           <NavChip href={`/projects/${project.id}/runs`} label="Runs" />
+          <NavChip href={`/projects/${project.id}/settings/api-keys`} label="API keys" />
         </div>
       </div>
     );

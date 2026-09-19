@@ -6,7 +6,7 @@ import { StatusBadge } from "@/components/ui/StatusBadge";
 import { ApiError } from "@/lib/api/client";
 import { listProjects } from "@/lib/api/projects";
 import { listExperiments, listProjectRuns } from "@/lib/api/experiments";
-import { getAccessToken } from "@/lib/config";
+import { getAccessToken } from "@/lib/auth/session";
 import { formatDate, formatScore, shortId } from "@/lib/format";
 import type { EvaluationRun, Experiment, Project } from "@/types/api";
 
@@ -30,18 +30,13 @@ async function loadOverview(): Promise<{
 }
 
 export default async function DashboardPage() {
-  if (!getAccessToken()) {
+  if (!(await getAccessToken())) {
     return (
       <div className="space-y-4">
         <h1 className="text-lg font-semibold">Dashboard</h1>
         <ErrorState
-          error={
-            new ApiError(
-              "Set EVALSURE_ACCESS_TOKEN in apps/web/.env.local to load dashboard data.",
-              401,
-            )
-          }
-          retryHref="/dashboard"
+          error={new ApiError("Sign in to load dashboard data.", 401)}
+          retryHref="/login"
         />
       </div>
     );

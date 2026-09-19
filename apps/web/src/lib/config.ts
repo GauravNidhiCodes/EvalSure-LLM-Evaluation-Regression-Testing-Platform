@@ -9,8 +9,8 @@ export function getApiPrefix(): string {
   return "/api/v1";
 }
 
-/** Server-only JWT. Never expose via NEXT_PUBLIC_*. */
-export function getAccessToken(): string | undefined {
+/** @deprecated Prefer async getAccessToken from @/lib/auth/session */
+export function getAccessTokenFromEnv(): string | undefined {
   const token = process.env.EVALSURE_ACCESS_TOKEN?.trim();
   return token || undefined;
 }

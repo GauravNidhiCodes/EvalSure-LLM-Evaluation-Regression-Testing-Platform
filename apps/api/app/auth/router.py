@@ -23,6 +23,7 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)) -> Token
 
 @router.get("/me", response_model=UserOut)
 async def me(auth: AuthContext = Depends(get_auth_context)) -> UserOut:
+    """JWT Bearer or project API key (X-API-Key)."""
     if auth.user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
     return UserOut.model_validate(auth.user)

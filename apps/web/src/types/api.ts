@@ -141,6 +141,23 @@ export interface RegressionPolicy {
   created_at: string;
 }
 
+export interface ApiKeyMeta {
+  id: string;
+  name: string;
+  key_prefix: string;
+  created_at: string;
+  revoked_at: string | null;
+  status: "active" | "revoked";
+}
+
+export interface ApiKeyCreated {
+  id: string;
+  name: string;
+  key_prefix: string;
+  api_key: string;
+  created_at: string;
+}
+
 export interface TraceEvent {
   id: string;
   run_id: string;

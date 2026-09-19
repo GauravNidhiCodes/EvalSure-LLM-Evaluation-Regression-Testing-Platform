@@ -33,10 +33,28 @@ class Settings(BaseSettings):
         description="Sync database URL for Alembic",
     )
 
-    # Required — set via JWT_SECRET in environment or apps/api/.env (never commit real values).
-    jwt_secret: str = Field(min_length=16)
-    jwt_algorithm: str = "HS256"
-    jwt_expire_minutes: int = 60 * 24 * 7
+    # Required — set via EVALSURE_JWT_SECRET / JWT_SECRET (never commit real values).
+    jwt_secret: str = Field(
+        min_length=16,
+        validation_alias=AliasChoices("EVALSURE_JWT_SECRET", "JWT_SECRET"),
+    )
+    jwt_algorithm: str = Field(
+        default="HS256",
+        validation_alias=AliasChoices("EVALSURE_JWT_ALGORITHM", "JWT_ALGORITHM"),
+    )
+    jwt_expire_minutes: int = Field(
+        default=60 * 24 * 7,
+        validation_alias=AliasChoices(
+            "EVALSURE_ACCESS_TOKEN_EXPIRE_MINUTES",
+            "JWT_EXPIRE_MINUTES",
+        ),
+    )
+
+    # Comma-separated browser origins for the dashboard (intentional CORS, not "*").
+    cors_origins: str = Field(
+        default="http://localhost:3000",
+        validation_alias=AliasChoices("EVALSURE_CORS_ORIGINS", "CORS_ORIGINS"),
+    )
 
     # LLM-as-a-judge (secrets never logged or persisted).
     judge_provider: str = Field(
