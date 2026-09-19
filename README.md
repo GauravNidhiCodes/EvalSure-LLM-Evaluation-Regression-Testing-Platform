@@ -4,114 +4,86 @@ LLM evaluation and regression-testing platform.
 
 ## Current status
 
-- Phase 0 — auth, projects, API keys
-- Phase 1 — datasets, evaluation runs + case results
-- Phase 2 — experiments, baselines, regression detection
-- Phase 3 — LLM-as-a-Judge metric (`llm_judge`)
-- Phase 4 Milestone 1 — **evaluation traces + observability**
+- Phase 0–3 — auth, datasets, runs, experiments, regression, LLM-as-a-judge
+- Phase 4 Milestone 1 — evaluation traces
+- Phase 4 Milestone 2 — **Python SDK + CLI**
 
-Not yet: dashboard, GitHub Actions / CLI, Redis workers.
+Not yet: frontend dashboard, GitHub Actions, Redis workers.
+
+## Python SDK
+
+Install (from repo root):
+
+```bash
+pip install -e packages/sdk
+```
+
+```python
+from evalsure_sdk import EvalSureClient
+
+client = EvalSureClient(
+    base_url="http://localhost:8000",
+    api_key="evs_...",           # X-API-Key — project-scoped ops
+    # access_token="...",        # JWT — required for projects.create / projects.list
+)
+
+projects = client.projects.list()  # needs access_token
+dataset = client.datasets.create(project_id="...", name="customer-support")
+version = client.datasets.create_version(
+    dataset.id,
+    test_cases=[
+        {
+            "external_id": "case-1",
+            "input": {"question": "What is your refund policy?"},
+            "expected": {"answer": "Refunds are available within 30 days."},
+        }
+    ],
+)
+run = client.runs.create(
+    project_id="...",
+    dataset_version_id=version.id,
+    metrics=["exact_match", "string_similarity", "llm_judge"],
+)
+client.runs.submit_results(run.id, results=[...])
+client.runs.evaluate_regression(run.id)
+client.traces.get_run_traces(run.id)
+```
+
+Auth notes:
+
+- Most endpoints accept **`X-API-Key`** (project API key)
+- **`projects.create` / `projects.list`** require a JWT (`access_token`) — backend limitation
+- API keys are never logged, printed, or stored by the SDK
+
+## CLI
+
+```bash
+pip install -e packages/sdk -e packages/cli
+export EVALSURE_API_URL=http://localhost:8000
+export EVALSURE_API_KEY=evs_...
+# optional for project create/list:
+# export EVALSURE_ACCESS_TOKEN=...
+
+evalsure --help
+evalsure projects list          # needs JWT
+evalsure datasets list PROJECT_ID
+evalsure datasets create-version DATASET_ID --file dataset.json
+evalsure runs create PROJECT_ID DATASET_VERSION_ID --metrics exact_match,string_similarity
+evalsure runs submit-results RUN_ID --file results.json
+evalsure runs get RUN_ID --json
+evalsure runs regression RUN_ID
+evalsure experiments baseline EXPERIMENT_ID RUN_ID
+evalsure traces run RUN_ID
+```
+
+Dataset / results JSON follow the API contract (`input` / `actual_output` are objects).
 
 ## Evaluation traces
 
-Traces answer: *"What happened when EVALSURE evaluated this test case?"*
+Append-only JSON events (`run_started` → `case_started` → `model_call` → `metric_evaluation` → …).
+See `GET /api/v1/runs/{id}/traces`.
 
-They are **lightweight, append-only JSON events** stored in Postgres — not a full
-OpenTelemetry collector or distributed tracing system. Use them for evaluation
-debugging and observability.
-
-### Event types
-
-| Event | When |
-|-------|------|
-| `run_started` | Run leaves PENDING on first result batch |
-| `case_started` | Case begins processing |
-| `model_call` | LLM/provider call (e.g. `llm_judge`) |
-| `metric_evaluation` | A metric score is computed |
-| `case_completed` / `case_failed` | Case finishes |
-| `run_completed` / `run_failed` | Run finishes |
-
-Typical happy path:
-
-```
-run_started
-→ case_started
-→ model_call          (if llm_judge)
-→ metric_evaluation
-→ case_completed
-→ run_completed
-```
-
-### API
-
-```bash
-GET /api/v1/runs/{run_id}/traces
-GET /api/v1/runs/{run_id}/cases/{case_result_id}/traces
-```
-
-Example response:
-
-```json
-{
-  "run_id": "...",
-  "events": [
-    {"id": "...", "event_type": "run_started", "timestamp": "...", "data": {}},
-    {
-      "id": "...",
-      "event_type": "model_call",
-      "timestamp": "...",
-      "data": {
-        "provider": "openai_compatible",
-        "model": "gpt-4o-mini",
-        "latency_ms": 842,
-        "input_tokens": 120,
-        "output_tokens": 65,
-        "total_tokens": 185
-      }
-    },
-    {
-      "id": "...",
-      "event_type": "metric_evaluation",
-      "timestamp": "...",
-      "data": {"metric": "string_similarity", "score": 0.91}
-    }
-  ]
-}
-```
-
-### Latency & tokens
-
-- `latency_ms` is recorded for real provider calls and case evaluation when measured
-- Token fields (`input_tokens`, `output_tokens`, `total_tokens`) are included **only**
-  when the provider response exposes usage — never estimated or fabricated
-
-### Security
-
-Traces never store API keys, authorization headers, credentials, or env secrets.
-Trace endpoints enforce the same project ownership as other run APIs.
-Events are **append-only** — there are no update/delete APIs.
-
-## LLM-as-a-Judge
-
-Deterministic metrics (`exact_match`, `string_similarity`) miss semantic equivalence.
-**`llm_judge`** scores actual vs expected via a configured LLM (0.0–1.0 + reason).
-
-```bash
-EVALSURE_JUDGE_PROVIDER=openai_compatible
-EVALSURE_JUDGE_MODEL=gpt-4o-mini
-EVALSURE_JUDGE_API_KEY=
-EVALSURE_JUDGE_BASE_URL=https://api.openai.com/v1
-```
-
-Keys never appear in `config_snapshot`, traces, or API responses. Tests mock the provider.
-
-## Regression
-
-Baseline run + per-metric policies (`max_allowed_drop`, `min_aggregate_score`,
-`max_regressed_cases`). Statuses: `NOT_EVALUATED` | `PASS` | `FAIL` — separate from
-`EvaluationRun.status`.
-
-## Run locally
+## Run the API locally
 
 ```bash
 cd apps/api
@@ -121,4 +93,11 @@ cp .env.example .env
 alembic upgrade head
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 pytest
+```
+
+SDK / CLI tests (mocked HTTP — no live API):
+
+```bash
+pip install -e "packages/sdk[dev]" -e "packages/cli[dev]"
+pytest packages/sdk packages/cli
 ```

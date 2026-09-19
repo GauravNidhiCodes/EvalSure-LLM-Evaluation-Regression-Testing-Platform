@@ -1,0 +1,29 @@
+[project]
+name = "evalsure-cli"
+version = "0.1.0"
+description = "EVALSURE CLI — terminal client for the EVALSURE REST API"
+requires-python = ">=3.11"
+dependencies = [
+    "evalsure-sdk",
+    "typer>=0.15.0",
+    "rich>=13.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.0",
+]
+
+[project.scripts]
+evalsure = "evalsure_cli.main:app"
+
+[build-system]
+requires = ["setuptools>=75.0.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["evalsure_cli*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

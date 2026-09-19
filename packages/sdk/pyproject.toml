@@ -1,0 +1,26 @@
+[project]
+name = "evalsure-sdk"
+version = "0.1.0"
+description = "EVALSURE Python SDK — typed client for the EVALSURE REST API"
+requires-python = ">=3.11"
+dependencies = [
+    "httpx>=0.28.0",
+    "pydantic>=2.10.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.0",
+    "respx>=0.21.0",
+]
+
+[build-system]
+requires = ["setuptools>=75.0.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["evalsure_sdk*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
